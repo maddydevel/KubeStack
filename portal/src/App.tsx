@@ -1,7 +1,7 @@
 // Copyright 2026 The KubeStack Authors. All rights reserved.
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, type Cluster } from "./api";
+import { api, ApiError, type Cluster, type Me } from "./api";
 
 function ErrorBox({ error }: { error: unknown }) {
   if (!error) return null;
@@ -111,6 +111,21 @@ function OpButton({ c, op, label, onClick, cls }: { c: Cluster; op: "upgrade" | 
 }
 
 export default function App() {
+  const me = useQuery({ queryKey: ["me"], queryFn: api.me });
+  if (me.error && (me.error as ApiError).status === 401) {
+    return (
+      <main className="mx-auto flex max-w-md flex-col items-center gap-4 p-12 text-center">
+        <h1 className="text-2xl font-bold">KubeStack</h1>
+        <p className="text-sm text-slate-600">Sign in with your organisation account to continue.</p>
+        <a href="/auth/login" className={`${btn} bg-indigo-600 text-white`}>Sign in</a>
+      </main>
+    );
+  }
+  if (!me.data) return <main className="p-6"><ErrorBox error={me.error} /></main>;
+  return <Console me={me.data} />;
+}
+
+function Console({ me }: { me: Me }) {
   const clusters = useQuery({ queryKey: ["clusters"], queryFn: api.clusters });
   const versions = useQuery({ queryKey: ["versions"], queryFn: api.versions, staleTime: Infinity });
   const audit = useQuery({ queryKey: ["audit"], queryFn: api.audit });
@@ -119,7 +134,13 @@ export default function App() {
 
   return (
     <main className="mx-auto flex max-w-6xl flex-col gap-8 p-6">
-      <h1 className="text-2xl font-bold">KubeStack</h1>
+      <header className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">KubeStack</h1>
+        <div className="flex items-center gap-3 text-sm">
+          <span>{me.name}{!me.admin && " (read-only)"}</span>
+          <button className={`${btn} bg-slate-200`} onClick={async () => { await api.logout(); window.location.reload(); }}>Sign out</button>
+        </div>
+      </header>
 
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Clusters</h2>
@@ -147,7 +168,7 @@ export default function App() {
             </tbody>
           </table>
         </div>
-        {vs.length > 0 && <CreateForm versions={vs} />}
+        {me.admin && vs.length > 0 && <CreateForm versions={vs} />}
       </section>
 
       <section className="flex flex-col gap-3">

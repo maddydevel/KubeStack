@@ -26,6 +26,7 @@ type Server struct {
 	Auth       auth.Authenticator
 	AdminGroup string // required for every mutating operation
 	Now        func() time.Time
+	Login      interface{ Routes(*http.ServeMux) } // optional portal login flow
 }
 
 type ctxKey struct{}
@@ -50,6 +51,10 @@ type handler func(r *http.Request, u auth.User) reply
 func (s *Server) Routes(portalDir string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
+	if s.Login != nil {
+		s.Login.Routes(mux)
+	}
+	mux.Handle("GET /api/v1/me", s.wrap(false, false, s.me))
 	mux.Handle("GET /api/v1/versions", s.wrap(false, false, s.versions))
 	mux.Handle("GET /api/v1/clusters", s.wrap(false, false, s.listClusters))
 	mux.Handle("GET /api/v1/clusters/{id}", s.wrap(false, false, s.getCluster))
@@ -154,6 +159,10 @@ func engineErr(err error) reply {
 	}
 	slog.Error("engine", "err", err)
 	return fail(http.StatusBadGateway, "lifecycle engine error")
+}
+
+func (s *Server) me(_ *http.Request, u auth.User) reply {
+	return reply{http.StatusOK, map[string]any{"name": u.Name, "admin": u.InGroup(s.AdminGroup)}}
 }
 
 func (s *Server) versions(*http.Request, auth.User) reply {

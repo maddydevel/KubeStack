@@ -123,3 +123,11 @@ func TestCreateAndRBAC(t *testing.T) {
 		t.Fatalf("duplicate: %d", w.Code)
 	}
 }
+
+func TestMe(t *testing.T) {
+	h, _, _ := setup("admins")
+	w := do(h, "GET", "/api/v1/me", "", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"admin":true`) || !strings.Contains(w.Body.String(), `"name":"alice"`) {
+		t.Fatalf("me: %d %s", w.Code, w.Body)
+	}
+}
