@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubestack-api
+  namespace: {{ .Release.Namespace }}
+---
+# Least privilege for lifecycle operations on Rancher's local cluster.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubestack-engine
+  namespace: fleet-default
+rules:
+  - apiGroups: ["provisioning.cattle.io"]
+    resources: ["clusters"]
+    verbs: ["get", "list", "create", "patch", "delete"]
+  - apiGroups: ["rke.cattle.io"]
+    resources: ["etcdsnapshots"]
+    verbs: ["list"]
+  - apiGroups: ["cluster.x-k8s.io"]
+    resources: ["machines"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubestack-engine
+  namespace: fleet-default
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: kubestack-engine}
+subjects:
+  - {kind: ServiceAccount, name: kubestack-api, namespace: {{ .Release.Namespace }}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubestack-engine-read
+rules:
+  - apiGroups: ["management.cattle.io"]
+    resources: ["clusters"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubestack-engine-read
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: kubestack-engine-read}
+subjects:
+  - {kind: ServiceAccount, name: kubestack-api, namespace: {{ .Release.Namespace }}}

@@ -1,0 +1,4 @@
+# Community Rancher versions KubeStack supports. `make e2e-matrix` runs the engine e2e against each.
+# The first entry is the default for `make e2e`.
+rancher:
+  - v2.15.3

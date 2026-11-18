@@ -1,0 +1,71 @@
+openapi: 3.0.3
+info: {title: KubeStack API, version: v1}
+# Source of truth for the HTTP API. portal/src/api.ts mirrors these types.
+security: [{bearer: []}]
+paths:
+  /api/v1/versions:
+    get: {summary: Release catalog, responses: {"200": {description: versions, content: {application/json: {schema: {type: array, items: {type: string}}}}}}}
+  /api/v1/clusters:
+    get:
+      summary: List clusters
+      responses: {"200": {description: clusters, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/Cluster"}}}}}}
+    post:
+      summary: Create an RKE2 cluster (admin group)
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/CreateRequest"}}}}
+      responses:
+        "201": {description: created, content: {application/json: {schema: {$ref: "#/components/schemas/Cluster"}}}}
+        "403": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+  /api/v1/clusters/{id}:
+    parameters: [{$ref: "#/components/parameters/id"}]
+    get: {summary: Get cluster, responses: {"200": {description: cluster, content: {application/json: {schema: {$ref: "#/components/schemas/Cluster"}}}}, "404": {$ref: "#/components/responses/Error"}}}
+    delete:
+      summary: Delete cluster (admin group, provisioned tier only)
+      parameters: [{$ref: "#/components/parameters/idempotencyKey"}]
+      responses: {"202": {description: deleting}, "409": {$ref: "#/components/responses/Error"}}
+  /api/v1/clusters/{id}/upgrade:
+    parameters: [{$ref: "#/components/parameters/id"}]
+    post:
+      summary: Upgrade Kubernetes (admin group; capability, upgradeOwner and pre-flight enforced)
+      parameters: [{$ref: "#/components/parameters/idempotencyKey"}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [kubernetesVersion], properties: {kubernetesVersion: {type: string}}}}}}
+      responses:
+        "202": {description: started, content: {application/json: {schema: {$ref: "#/components/schemas/Cluster"}}}}
+        "409": {$ref: "#/components/responses/Error"}
+        "412": {$ref: "#/components/responses/Error"}
+  /api/v1/audit:
+    get:
+      summary: Audit trail, newest first
+      parameters: [{name: limit, in: query, schema: {type: integer, maximum: 500}}]
+      responses: {"200": {description: records, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/AuditRecord"}}}}}}
+components:
+  securitySchemes:
+    bearer: {type: http, scheme: bearer, bearerFormat: OIDC ID token}
+  parameters:
+    id: {name: id, in: path, required: true, schema: {type: string}}
+    idempotencyKey: {name: Idempotency-Key, in: header, required: true, schema: {type: string}}
+  responses:
+    Error: {description: error, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+  schemas:
+    Tier: {type: string, enum: [provisioned, hosted, attached]}
+    UpgradeOwner: {type: string, enum: [kubestack, rancher, cloud, none]}
+    Permission: {type: object, properties: {allowed: {type: boolean}, reason: {type: string}}}
+    Cluster:
+      type: object
+      properties:
+        id: {type: string}
+        name: {type: string}
+        tier: {$ref: "#/components/schemas/Tier"}
+        upgradeOwner: {$ref: "#/components/schemas/UpgradeOwner"}
+        kubernetesVersion: {type: string}
+        ready: {type: boolean}
+        operations: {type: object, properties: {upgrade: {$ref: "#/components/schemas/Permission"}, delete: {$ref: "#/components/schemas/Permission"}}}
+    CreateRequest:
+      type: object
+      required: [name, kubernetesVersion]
+      properties: {name: {type: string, pattern: "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"}, kubernetesVersion: {type: string}}
+    AuditRecord:
+      type: object
+      properties: {id: {type: integer}, time: {type: string, format: date-time}, actor: {type: string}, action: {type: string}, clusterId: {type: string}, before: {type: object}, after: {type: object}, result: {type: string, enum: [attempt, success, failure]}, error: {type: string}}
+    Error: {type: object, properties: {error: {type: string}, details: {type: array, items: {type: string}}}}
