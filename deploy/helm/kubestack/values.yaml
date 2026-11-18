@@ -1,0 +1,22 @@
+image:
+  registry: ""          # your mirror, e.g. registry.example.internal
+  repository: kubestack/kubestack-api
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+adminGroup: kubestack-admins
+
+oidc:
+  issuer: ""            # must be reachable on the private network
+  clientID: ""
+  groupsClaim: groups
+
+# Secret holding key DATABASE_URL (postgres://...). Required for a durable audit trail.
+databaseSecret: ""
+
+# Install into Rancher's local cluster and use the in-cluster service account (recommended),
+# or set to a Secret containing key "kubeconfig" for a remote local cluster.
+rancherKubeconfigSecret: ""
+
+service:
+  port: 80

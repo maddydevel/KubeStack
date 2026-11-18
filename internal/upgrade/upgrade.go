@@ -1,0 +1,106 @@
+// Copyright 2026 The KubeStack Authors. All rights reserved.
+
+// Package upgrade holds pre-flight checks and version-skew rules. Nothing here is bypassable.
+package upgrade
+
+import (
+	_ "embed"
+	"encoding/json"
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"kubestack.dev/kubestack/internal/domain"
+)
+
+// shortcut: hand-maintained bundled catalog; replace with the mirrored RKE2 release catalog before GA.
+//
+//go:embed releases.json
+var releasesJSON []byte
+
+func Versions() []string {
+	var v []string
+	if err := json.Unmarshal(releasesJSON, &v); err != nil {
+		panic("bundled releases.json is invalid: " + err.Error())
+	}
+	return v
+}
+
+const MaxSnapshotAge = 24 * time.Hour
+
+type version struct{ major, minor, patch int }
+
+// parse accepts "v1.32.3+rke2r1"; the build suffix is ignored for ordering.
+func parse(s string) (version, error) {
+	core, _, _ := strings.Cut(strings.TrimPrefix(s, "v"), "+")
+	p := strings.Split(core, ".")
+	if len(p) != 3 {
+		return version{}, fmt.Errorf("invalid version %q", s)
+	}
+	var n [3]int
+	for i, x := range p {
+		v, err := strconv.Atoi(x)
+		if err != nil {
+			return version{}, fmt.Errorf("invalid version %q", s)
+		}
+		n[i] = v
+	}
+	return version{n[0], n[1], n[2]}, nil
+}
+
+// ValidateSkew forbids downgrades, no-ops, major changes and skipped minor versions.
+func ValidateSkew(current, target string) error {
+	c, err := parse(current)
+	if err != nil {
+		return err
+	}
+	t, err := parse(target)
+	if err != nil {
+		return err
+	}
+	switch {
+	case t.major != c.major:
+		return fmt.Errorf("major version change %s -> %s is not supported", current, target)
+	case t.minor > c.minor+1:
+		return fmt.Errorf("cannot skip minor versions (%s -> %s); upgrade to 1.%d first", current, target, c.minor+1)
+	case t.minor < c.minor || (t.minor == c.minor && t.patch < c.patch):
+		return fmt.Errorf("downgrade %s -> %s is not allowed", current, target)
+	case t == c:
+		return fmt.Errorf("cluster is already at %s", current)
+	}
+	return nil
+}
+
+type Preflight struct {
+	LatestSnapshot time.Time // zero = no successful snapshot
+	ReadyNodes     int
+	TotalNodes     int
+}
+
+// Check returns every reason the upgrade must not start; empty means go.
+func Check(c domain.Cluster, target string, p Preflight, now time.Time) []string {
+	var f []string
+	if ok, reason := c.Allowed(domain.OpUpgrade); !ok {
+		return []string{reason}
+	}
+	if !slices.Contains(Versions(), target) {
+		f = append(f, fmt.Sprintf("target %q is not in the release catalog", target))
+	}
+	if err := ValidateSkew(c.KubernetesVersion, target); err != nil {
+		f = append(f, err.Error())
+	}
+	if !c.Ready {
+		f = append(f, "cluster is not ready")
+	}
+	if p.LatestSnapshot.IsZero() {
+		f = append(f, "no successful etcd snapshot found")
+	} else if age := now.Sub(p.LatestSnapshot); age > MaxSnapshotAge {
+		f = append(f, fmt.Sprintf("latest etcd snapshot is %s old (max %s)", age.Round(time.Minute), MaxSnapshotAge))
+	}
+	if p.TotalNodes == 0 || p.ReadyNodes < p.TotalNodes {
+		f = append(f, fmt.Sprintf("%d of %d nodes ready", p.ReadyNodes, p.TotalNodes))
+	}
+	return f
+}

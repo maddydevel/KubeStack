@@ -1,0 +1,2 @@
+# Images mirrored unmodified for air-gapped installs (keep upstream LICENSE/NOTICE).
+<registry>/kubestack/kubestack-api:<version>

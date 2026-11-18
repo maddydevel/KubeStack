@@ -1,0 +1,9 @@
+# Images Rancher v2.15.3 pulls into its embedded cluster at startup, beyond its bundled k3s airgap tarball.
+# Discovered by running it with no network; preloaded so e2e runs fully air-gapped (rule 13).
+rancher/shell:v0.8.3
+rancher/fleet:v0.16.3
+rancher/remotedialer-proxy:v0.8.3
+rancher/rancher-webhook:v0.11.4
+rancher/turtles:v0.27.4
+rancher/system-upgrade-controller:v0.20.1
+rancher/cluster-api-controller:v1.13.3
