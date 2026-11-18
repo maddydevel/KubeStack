@@ -102,6 +102,7 @@ type ClusterOIDC struct {
 	ClientID    string `json:"clientID"`
 	GroupsClaim string `json:"-"`
 	AdminGroup  string `json:"-"` // bound to cluster-admin as "oidc:<group>"
+	CAPEM       []byte `json:"-"` // IdP CA for the API server; empty = node OS trust store
 }
 
 const OIDCPrefix = "oidc:"

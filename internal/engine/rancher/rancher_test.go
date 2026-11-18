@@ -35,7 +35,7 @@ func u(apiVersion, kind, ns, name string, labels map[string]any, fields map[stri
 
 func newEngine(objs ...runtime.Object) *Engine {
 	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
-		provGVR: "ClusterList", mgmtGVR: "ClusterList", snapGVR: "ETCDSnapshotList", machineGVR: "MachineList", crtGVR: "ClusterRegistrationTokenList", settingGVR: "SettingList",
+		provGVR: "ClusterList", mgmtGVR: "ClusterList", snapGVR: "ETCDSnapshotList", machineGVR: "MachineList", crtGVR: "ClusterRegistrationTokenList", settingGVR: "SettingList", configMapGVR: "ConfigMapList",
 	}, objs...)
 	return NewForClient(c)
 }
@@ -246,5 +246,32 @@ func TestImportedUpgradeOwner(t *testing.T) {
 	}
 	if c, _ := e.GetCluster(ctx, "rke2-on"); c.UpgradeOwner != domain.OwnerRancher {
 		t.Errorf("annotation true: %+v", c)
+	}
+}
+
+func TestCreateWithOIDCCA(t *testing.T) {
+	ctx := context.Background()
+	e := newEngine()
+	ca := []byte("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n")
+	oidc := &domain.ClusterOIDC{IssuerURL: "https://idp.example", ClientID: "k", GroupsClaim: "groups", AdminGroup: "ops", CAPEM: ca}
+	if _, err := e.CreateCluster(ctx, domain.CreateRequest{Name: "c", KubernetesVersion: "v1.35.9+rke2r1", OIDC: oidc}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := e.prov().Get(ctx, "c", metav1.GetOptions{})
+	args, _, _ := unstructured.NestedStringSlice(p.Object, "spec", "rkeConfig", "machineGlobalConfig", "kube-apiserver-arg")
+	mounts, _, _ := unstructured.NestedStringSlice(p.Object, "spec", "rkeConfig", "machineGlobalConfig", "kube-apiserver-extra-mount")
+	files, _, _ := unstructured.NestedSlice(p.Object, "spec", "rkeConfig", "machineSelectorFiles")
+	if !slices.Contains(args, "oidc-ca-file=/etc/kubestack/oidc-ca.crt") || len(mounts) != 1 || len(files) != 1 {
+		t.Fatalf("args %v mounts %v files %v", args, mounts, files)
+	}
+	cm, err := e.c.Resource(configMapGVR).Namespace(namespace).Get(ctx, "kubestack-oidc-ca-c", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cm.GetAnnotations()["rke.cattle.io/object-authorized-for-clusters"] != "c" || len(cm.GetOwnerReferences()) != 1 {
+		t.Errorf("configmap metadata: %v %v", cm.GetAnnotations(), cm.GetOwnerReferences())
+	}
+	if d, _, _ := unstructured.NestedString(cm.Object, "data", "ca.crt"); d != string(ca) {
+		t.Errorf("ca data: %q", d)
 	}
 }

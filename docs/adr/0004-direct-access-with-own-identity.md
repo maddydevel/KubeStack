@@ -24,6 +24,10 @@ runs Rancher headless, so there is no OIDC → Rancher user mapping, and couplin
   CLI (`oidc.cliClientID`, defaults to the portal's client ID).
 - Clusters created before this change, imported and hosted clusters are not configured; `access` is refused for
   non-provisioned tiers with a reason.
-- The IdP's CA must be trusted by the node OS (shortcut: no `oidc-ca-file` distribution yet).
+- A private IdP CA (`oidc.caConfigMap`) is copied to control-plane nodes: a per-cluster ConfigMap
+  `kubestack-oidc-ca-<cluster>` in `fleet-default` (annotated `rke.cattle.io/object-authorized-for-clusters: <cluster>`,
+  owned by the cluster so it is garbage-collected with it), referenced by `spec.rkeConfig.machineSelectorFiles`, mounted
+  into the API server pod with `kube-apiserver-extra-mount`, used via `oidc-ca-file`
+  (Rancher v2.15.3 `pkg/capr/planner/config.go`). e2e verifies acceptance and garbage collection.
 - Verified: unit tests and the e2e (webhook accepts the args and manifest; access is not-ready without nodes).
   Not verified: an actual kubectl login against a running downstream cluster (the e2e has no nodes).

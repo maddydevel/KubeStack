@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -87,7 +88,8 @@ func TestE2E(t *testing.T) {
 	}
 
 	name := fmt.Sprintf("ks-e2e-%d", time.Now().Unix()%100000)
-	oidc := &domain.ClusterOIDC{IssuerURL: "https://idp.kubestack-e2e.test", ClientID: "kubestack", GroupsClaim: "groups", AdminGroup: "e2e-admins"}
+	oidc := &domain.ClusterOIDC{IssuerURL: "https://idp.kubestack-e2e.test", ClientID: "kubestack", GroupsClaim: "groups", AdminGroup: "e2e-admins",
+		CAPEM: []byte("-----BEGIN CERTIFICATE-----\ne2e\n-----END CERTIFICATE-----\n")}
 	c, err := e.CreateCluster(ctx, domain.CreateRequest{Name: name, KubernetesVersion: version, OIDC: oidc})
 	if err != nil {
 		t.Fatalf("create (webhook must accept traefik, kube-apiserver OIDC args and the admin binding manifest): %v", err)
@@ -154,8 +156,11 @@ func TestE2E(t *testing.T) {
 		t.Fatalf("access without nodes: %v", err)
 	}
 	p, _ := e.prov().Get(ctx, name, metav1.GetOptions{})
-	if args, _, _ := unstructured.NestedStringSlice(p.Object, "spec", "rkeConfig", "machineGlobalConfig", "kube-apiserver-arg"); !slices.Contains(args, "oidc-issuer-url="+oidc.IssuerURL) {
+	if args, _, _ := unstructured.NestedStringSlice(p.Object, "spec", "rkeConfig", "machineGlobalConfig", "kube-apiserver-arg"); !slices.Contains(args, "oidc-issuer-url="+oidc.IssuerURL) || !slices.Contains(args, "oidc-ca-file="+oidcCAPath) {
 		t.Fatalf("OIDC args not persisted: %v", args)
+	}
+	if _, err := e.c.Resource(configMapGVR).Namespace(namespace).Get(ctx, oidcCAConfigMap(name), metav1.GetOptions{}); err != nil {
+		t.Fatalf("IdP CA configmap: %v", err)
 	}
 	// The webhook must accept the one-shot etcd operations (no nodes, so Rancher can't act on them).
 	if err := e.CreateSnapshot(ctx, name); err != nil {
@@ -204,6 +209,10 @@ func TestE2E(t *testing.T) {
 			return errors.Is(err, engine.ErrNotFound), err
 		})
 	}
+	eventually(t, 2*time.Minute, "IdP CA configmap garbage-collected with its cluster", func() (bool, error) {
+		_, err := e.c.Resource(configMapGVR).Namespace(namespace).Get(ctx, oidcCAConfigMap(name), metav1.GetOptions{})
+		return apierrors.IsNotFound(err), err
+	})
 }
 
 // checkTokenSecret verifies the reference resolves to a non-empty token (the test runs as admin;

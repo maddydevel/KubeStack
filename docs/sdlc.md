@@ -125,7 +125,7 @@ portal with an OIDC-aware proxy that forwards `Authorization: Bearer <id_token>`
 | Audit row with `attempt` but no `success`/`failure` | API crashed mid-op — check cluster state in Rancher, then record outcome |
 
 ## 7. Known gaps (backlog)
-- Direct access: IdP CA distribution to nodes (`oidc-ca-file`); a real kubectl login is not covered by e2e (no nodes).
+- Direct access: a real kubectl login is not covered by e2e (no nodes).
 - Upgrading imported clusters needs etcd snapshot visibility for them (pre-flight can't be bypassed); refused with a reason.
 - `kubestack-controller` + CRDs: deferred by the product owner until there is a GitOps user (2026-11-18).
 - SBOM covers the Go binary and base image; portal npm packages are listed in `compliance/THIRD-PARTY.md`
