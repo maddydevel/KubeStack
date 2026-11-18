@@ -143,11 +143,18 @@ func TestE2E(t *testing.T) {
 	}
 
 	// No nodes registered: queries must succeed and report nothing (pre-flight would then refuse).
-	if snap, err := e.LatestSnapshot(ctx, name); err != nil || !snap.IsZero() {
-		t.Fatalf("snapshot query: %v %v", snap, err)
+	if snaps, err := e.Snapshots(ctx, name); err != nil || len(snaps) != 0 {
+		t.Fatalf("snapshot query: %v %v", snaps, err)
 	}
-	if r, n, err := e.NodeHealth(ctx, name); err != nil || r != 0 || n != 0 {
-		t.Fatalf("node health query: %d/%d %v", r, n, err)
+	if nodes, err := e.Nodes(ctx, name); err != nil || len(nodes) != 0 {
+		t.Fatalf("node query: %v %v", nodes, err)
+	}
+	// The webhook must accept the one-shot etcd operations (no nodes, so Rancher can't act on them).
+	if err := e.CreateSnapshot(ctx, name); err != nil {
+		t.Fatalf("etcdSnapshotCreate rejected: %v", err)
+	}
+	if err := e.RestoreSnapshot(ctx, name, name+"-etcd-snapshot-e2e"); err != nil {
+		t.Fatalf("etcdSnapshotRestore rejected: %v", err)
 	}
 
 	if err := e.UpgradeCluster(ctx, name, version); err != nil {

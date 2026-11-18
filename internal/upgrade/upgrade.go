@@ -79,6 +79,23 @@ type Preflight struct {
 	TotalNodes     int
 }
 
+// PreflightFrom derives the pre-flight inputs from the engine's snapshot and node lists.
+func PreflightFrom(snaps []domain.Snapshot, nodes []domain.Node) Preflight {
+	var p Preflight
+	for _, s := range snaps {
+		if s.Successful && s.CreatedAt.After(p.LatestSnapshot) {
+			p.LatestSnapshot = s.CreatedAt
+		}
+	}
+	for _, n := range nodes {
+		p.TotalNodes++
+		if n.Ready {
+			p.ReadyNodes++
+		}
+	}
+	return p
+}
+
 // Check returns every reason the upgrade must not start; empty means go.
 func Check(c domain.Cluster, target string, p Preflight, now time.Time) []string {
 	var f []string

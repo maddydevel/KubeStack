@@ -19,7 +19,7 @@ rules:
     verbs: ["list"]
   - apiGroups: ["cluster.x-k8s.io"]
     resources: ["machines"]
-    verbs: ["list"]
+    verbs: ["get", "list", "delete"]   # delete = remove node
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

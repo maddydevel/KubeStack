@@ -5,6 +5,7 @@ package fake
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -16,9 +17,20 @@ import (
 
 type Cluster struct {
 	domain.Cluster
-	Snapshot   time.Time
-	ReadyNodes int
-	TotalNodes int
+	Snapshots []domain.Snapshot
+	Nodes     []domain.Node
+}
+
+func nodes(ready, total int) []domain.Node {
+	out := []domain.Node{}
+	for i := range total {
+		roles := []string{"worker"}
+		if i == 0 {
+			roles = []string{"etcd", "controlplane"}
+		}
+		out = append(out, domain.Node{Name: fmt.Sprintf("node-%d", i), Ready: i < ready, Roles: roles})
+	}
+	return out
 }
 
 type Engine struct {
@@ -40,9 +52,10 @@ func New(cs ...Cluster) *Engine {
 func Demo() *Engine {
 	now := time.Now()
 	return New(
-		Cluster{domain.Cluster{ID: "prod-eu", Name: "prod-eu", Tier: domain.TierProvisioned, UpgradeOwner: domain.OwnerRancher, KubernetesVersion: "v1.34.12+rke2r1", Ready: true}, now.Add(-2 * time.Hour), 3, 3},
-		Cluster{domain.Cluster{ID: "analytics-eks", Name: "analytics-eks", Tier: domain.TierHosted, UpgradeOwner: domain.OwnerCloud, KubernetesVersion: "v1.33.4-eks", Ready: true}, time.Time{}, 4, 4},
-		Cluster{domain.Cluster{ID: "legacy-k3s", Name: "legacy-k3s", Tier: domain.TierAttached, UpgradeOwner: domain.OwnerNone, KubernetesVersion: "v1.31.6+k3s1", Ready: true}, time.Time{}, 1, 1},
+		Cluster{domain.Cluster{ID: "prod-eu", Name: "prod-eu", Tier: domain.TierProvisioned, UpgradeOwner: domain.OwnerRancher, KubernetesVersion: "v1.34.12+rke2r1", Ready: true},
+			[]domain.Snapshot{{Name: "prod-eu-etcd-1", CreatedAt: now.Add(-2 * time.Hour), Successful: true}}, nodes(3, 3)},
+		Cluster{domain.Cluster{ID: "analytics-eks", Name: "analytics-eks", Tier: domain.TierHosted, UpgradeOwner: domain.OwnerCloud, KubernetesVersion: "v1.33.4-eks", Ready: true}, nil, nodes(4, 4)},
+		Cluster{domain.Cluster{ID: "legacy-k3s", Name: "legacy-k3s", Tier: domain.TierAttached, UpgradeOwner: domain.OwnerNone, KubernetesVersion: "v1.31.6+k3s1", Ready: true}, nil, nodes(1, 1)},
 	)
 }
 
@@ -122,22 +135,69 @@ func (e *Engine) DeleteCluster(_ context.Context, id string) error {
 	return nil
 }
 
-func (e *Engine) LatestSnapshot(_ context.Context, id string) (time.Time, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+func (e *Engine) get(id string) (*Cluster, error) {
 	c, ok := e.clusters[id]
 	if !ok {
-		return time.Time{}, engine.ErrNotFound
+		return nil, engine.ErrNotFound
 	}
-	return c.Snapshot, nil
+	return c, nil
 }
 
-func (e *Engine) NodeHealth(_ context.Context, id string) (int, int, error) {
+func (e *Engine) Snapshots(_ context.Context, id string) ([]domain.Snapshot, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	c, ok := e.clusters[id]
-	if !ok {
-		return 0, 0, engine.ErrNotFound
+	c, err := e.get(id)
+	if err != nil {
+		return nil, err
 	}
-	return c.ReadyNodes, c.TotalNodes, nil
+	return slices.Clone(c.Snapshots), nil
+}
+
+func (e *Engine) CreateSnapshot(_ context.Context, id string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	c, err := e.get(id)
+	if err != nil {
+		return err
+	}
+	c.Snapshots = append(c.Snapshots, domain.Snapshot{Name: fmt.Sprintf("%s-etcd-%d", id, len(c.Snapshots)+1), CreatedAt: time.Now(), Successful: true})
+	return nil
+}
+
+func (e *Engine) RestoreSnapshot(_ context.Context, id, snapshot string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	c, err := e.get(id)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(c.Snapshots, func(s domain.Snapshot) bool { return s.Name == snapshot }) {
+		return engine.ErrNotFound
+	}
+	return nil
+}
+
+func (e *Engine) Nodes(_ context.Context, id string) ([]domain.Node, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	c, err := e.get(id)
+	if err != nil {
+		return nil, err
+	}
+	return slices.Clone(c.Nodes), nil
+}
+
+func (e *Engine) RemoveNode(_ context.Context, id, node string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	c, err := e.get(id)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(c.Nodes, func(n domain.Node) bool { return n.Name == node })
+	if i < 0 {
+		return engine.ErrNotFound
+	}
+	c.Nodes = slices.Delete(c.Nodes, i, i+1)
+	return nil
 }

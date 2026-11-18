@@ -14,6 +14,11 @@ as the lifecycle engine, reached only through `internal/engine/rancher/` using n
   semantics are verified.
 - Etcd snapshots: `rke.cattle.io/v1 ETCDSnapshot`, label `rke.cattle.io/cluster-name`, `snapshotFile.status == successful`.
 - Node health: Cluster API `Machine` (v1beta2; v1beta1 deprecated in Rancher v2.15) condition `Ready=True`, label `cluster.x-k8s.io/cluster-name`.
+- Snapshot/restore: bump `spec.rkeConfig.etcdSnapshotCreate.generation` / `etcdSnapshotRestore.{name,generation,restoreRKEConfig: none}`
+  (Rancher v2.15.3 `pkg/apis/rke.cattle.io/v1/common_types.go`); the patch carries `metadata.resourceVersion` so
+  concurrent requests conflict. The newer `operation.cattle.io/v1alpha1 ETCDSnapshotRestore` API is not used yet.
+- Node roles: Machine labels `rke.cattle.io/{etcd,control-plane,worker}-role=true` (`pkg/capr/common.go`). Node removal
+  deletes the Machine with a UID precondition after checking its cluster label.
 - New clusters set RKE2 `ingress-controller: traefik` in `machineGlobalConfig` (accepted by the v2.15.3 webhook).
 - `kubernetesVersion` must carry the `v` prefix; the webhook rejects `1.36.5+rke2r1`.
 

@@ -37,6 +37,26 @@ paths:
       responses:
         "200": {description: registration, content: {application/json: {schema: {$ref: "#/components/schemas/Registration"}}}}
         "409": {$ref: "#/components/responses/Error"}
+  /api/v1/clusters/{id}/snapshots:
+    parameters: [{$ref: "#/components/parameters/id"}]
+    get: {summary: etcd snapshots, responses: {"200": {description: snapshots, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/Snapshot"}}}}}}}
+    post: {summary: Take an etcd snapshot now (admin group, provisioned tier), responses: {"202": {description: requested}, "409": {$ref: "#/components/responses/Error"}}}
+  /api/v1/clusters/{id}/restore:
+    parameters: [{$ref: "#/components/parameters/id"}]
+    post:
+      summary: Restore etcd data from a successful snapshot of this cluster; version and config are kept (admin group, destructive)
+      parameters: [{$ref: "#/components/parameters/idempotencyKey"}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [snapshot], properties: {snapshot: {type: string}}}}}}
+      responses: {"202": {description: requested}, "409": {$ref: "#/components/responses/Error"}, "422": {$ref: "#/components/responses/Error"}}
+  /api/v1/clusters/{id}/nodes:
+    parameters: [{$ref: "#/components/parameters/id"}]
+    get: {summary: Nodes (machines), responses: {"200": {description: nodes, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/Node"}}}}}}}
+  /api/v1/clusters/{id}/nodes/{node}:
+    parameters: [{$ref: "#/components/parameters/id"}, {name: node, in: path, required: true, schema: {type: string}}]
+    delete:
+      summary: Drain and remove a node; refuses the last etcd or control-plane node (admin group, destructive)
+      parameters: [{$ref: "#/components/parameters/idempotencyKey"}]
+      responses: {"202": {description: removing}, "409": {$ref: "#/components/responses/Error"}}
   /api/v1/clusters/{id}:
     parameters: [{$ref: "#/components/parameters/id"}]
     get: {summary: Get cluster, responses: {"200": {description: cluster, content: {application/json: {schema: {$ref: "#/components/schemas/Cluster"}}}}, "404": {$ref: "#/components/responses/Error"}}}
@@ -81,7 +101,9 @@ components:
         upgradeOwner: {$ref: "#/components/schemas/UpgradeOwner"}
         kubernetesVersion: {type: string}
         ready: {type: boolean}
-        operations: {type: object, properties: {upgrade: {$ref: "#/components/schemas/Permission"}, delete: {$ref: "#/components/schemas/Permission"}, register: {$ref: "#/components/schemas/Permission"}}}
+        operations: {type: object, properties: {upgrade: {$ref: "#/components/schemas/Permission"}, delete: {$ref: "#/components/schemas/Permission"}, register: {$ref: "#/components/schemas/Permission"}, snapshot: {$ref: "#/components/schemas/Permission"}, restore: {$ref: "#/components/schemas/Permission"}, removeNode: {$ref: "#/components/schemas/Permission"}}}
+    Snapshot: {type: object, properties: {name: {type: string}, createdAt: {type: string, format: date-time}, successful: {type: boolean}}}
+    Node: {type: object, properties: {name: {type: string}, ready: {type: boolean}, roles: {type: array, items: {type: string, enum: [etcd, controlplane, worker]}}}}
     Registration:
       type: object
       description: command contains the literal "{token}"; read the token from the referenced Secret with your own credentials.

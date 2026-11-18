@@ -18,6 +18,8 @@ Rules referenced as **R#** are the numbered rules in `CLAUDE.md`.
 | F8 | Portal sign-in/sign-out via the organisation's OIDC provider |
 | F9 | Join nodes to a provisioned cluster without KubeStack ever handling the join token (R15) |
 | F10 | Import (attach) an existing cluster; disconnect it later without destroying it |
+| F11 | Take and list etcd snapshots; restore one (destructive: typed confirmation + idempotency key) |
+| F12 | List nodes with roles/readiness; remove a node, never the last etcd or control-plane node |
 
 ### Non-functional
 | ID | Requirement |
@@ -60,6 +62,8 @@ Portal (React/TS) ──/api/v1──▶ server ──▶ domain.Allowed / upgra
 | N4 | `auth.OIDC`, `server.wrap` | `TestCreateAndRBAC` (403 for non-admin) |
 | F9 | `server.registration`, `rancher.Registration` (placeholder + Secret ref), portal `RegisterDialog` | `rancher_test: TestRegistration` (inlined token refused), `TestImportAndRegistration`, `App.test: registration…`, e2e |
 | F10 | `server.importCluster`, `rancher.ImportCluster`, `domain.Allowed` (attached delete = disconnect) | `TestImportAndRegistration`, `TestRegistration`, e2e (import, command, disconnect) |
+| F11 | `server.{list,create,restore}Snapshot(s)`, `rancher.bumpGeneration` (etcdSnapshotCreate/Restore, optimistic concurrency), portal `BackupsDialog` | `TestSnapshotRestoreAndNodes`, `rancher_test` (generation patches), `App.test: restore needs…`, e2e (webhook accepts both) |
+| F12 | `server.removeNode`, `domain.RemovalBlocked`, `rancher.RemoveNode` (cluster label + UID precondition), portal `NodesDialog` | `TestRemovalBlocked`, `TestSnapshotRestoreAndNodes`, `rancher_test` (other cluster's machine refused), `App.test: node removal…` |
 | F8 | `auth.Login` (code flow + PKCE + nonce, cookie = ID token), CSRF header, portal sign-in | `auth: TestLoginFlow` (fake IdP: forged state, tampered token, CSRF), `TestMe`, `App.test: signed-out…`, `…CSRF header` |
 | N5 | `server.wrap` + `store.ClaimIdempotency` | `TestUpgradeFlow` (replay), `store_test` (10 concurrent claims → 1 winner) |
 | N6 | `server.lifecycle` | `TestUpgradeFlow` (attempt + success records) |
@@ -106,6 +110,8 @@ portal with an OIDC-aware proxy that forwards `Authorization: Bearer <id_token>`
 | 409 "…still in progress" | Same Idempotency-Key in flight; wait, don't retry with a new key |
 | 502 "lifecycle engine error" | Rancher API unreachable/rejected; see API logs (`slog`, no secrets) |
 | Cluster stuck deleting; finalizer `auth.cattle.io/capi-resources-cleanup`; Rancher logs `no matching controller owner ref` | Rancher never created the CAPI Cluster (CAPI webhook was down at create time, rancher/rancher#40535). Check `cattle-capi-system/capi-controller-manager`; escalate to Rancher ops — KubeStack never strips finalizers |
+| 409 "cluster changed concurrently, retry" on snapshot/restore | Someone else changed the cluster spec at the same moment; retry |
+| Restore requested but nothing happens | Rancher acts only when etcd nodes are up; check the cluster's conditions in Rancher. Restore keeps version and config (`restoreRKEConfig: none`) |
 | Audit row with `attempt` but no `success`/`failure` | API crashed mid-op — check cluster state in Rancher, then record outcome |
 
 ## 7. Known gaps (backlog)

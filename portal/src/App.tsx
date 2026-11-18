@@ -95,6 +95,79 @@ function RegisterDialog({ c, onClose }: { c: Cluster; onClose: () => void }) {
   );
 }
 
+/** Destructive confirm: the button enables only once the exact name is typed (rule 17). */
+function TypeToConfirm({ name, label, action, pending, onConfirm }: { name: string; label: string; action: string; pending: boolean; onConfirm: () => void }) {
+  const [typed, setTyped] = useState("");
+  return (
+    <div className="flex flex-col gap-2 rounded border border-red-200 bg-red-50 p-3">
+      <p className="text-sm">Type <code>{name}</code> to confirm.</p>
+      <input aria-label={label} value={typed} onChange={(e) => setTyped(e.target.value)} className="rounded border border-slate-300 px-2 py-1.5" />
+      <button disabled={typed !== name || pending} onClick={onConfirm} className={`${btn} bg-red-600 text-white`}>{action}</button>
+    </div>
+  );
+}
+
+function BackupsDialog({ c, admin, onClose }: { c: Cluster; admin: boolean; onClose: () => void }) {
+  const q = useQuery({ queryKey: ["snapshots", c.id], queryFn: () => api.snapshots(c.id) });
+  const qc = useQueryClient();
+  const done = useInvalidate();
+  const [selected, setSelected] = useState<string | null>(null);
+  const take = useMutation({ mutationFn: () => api.takeSnapshot(c.id), onSuccess: () => { done(); qc.invalidateQueries({ queryKey: ["snapshots", c.id] }); } });
+  const restore = useMutation({ mutationFn: (s: string) => api.restore(c.id, s), onSuccess: () => { done(); onClose(); } });
+  return (
+    <Dialog title={`etcd snapshots of ${c.name}`} onClose={onClose}>
+      <ErrorBox error={q.error ?? take.error ?? restore.error} />
+      <ul className="max-h-60 divide-y divide-slate-100 overflow-y-auto text-sm">
+        {q.data?.map((s) => (
+          <li key={s.name} className="flex items-center justify-between gap-2 py-1.5">
+            <span><span className="font-mono">{s.name}</span> <time className="text-slate-500">{new Date(s.createdAt).toLocaleString()}</time>{!s.successful && <span className="text-red-700"> failed</span>}</span>
+            {admin && <button disabled={!s.successful || !c.operations.restore.allowed} title={c.operations.restore.reason} onClick={() => setSelected(s.name)} className={`${btn} bg-red-100 text-red-900`}>Restore…</button>}
+          </li>
+        ))}
+        {q.data?.length === 0 && <li className="py-2 text-slate-500">No snapshots yet.</li>}
+      </ul>
+      {admin && <button disabled={!c.operations.snapshot.allowed || take.isPending} title={c.operations.snapshot.reason} onClick={() => take.mutate()} className={`${btn} bg-indigo-600 text-white`}>Take snapshot now</button>}
+      {selected && (
+        <>
+          <p className="text-sm">Restoring <code>{selected}</code> replaces all etcd data in {c.name}; changes since the snapshot are lost. The cluster restarts.</p>
+          <TypeToConfirm name={c.name} label="Cluster name confirmation" action="Restore snapshot" pending={restore.isPending} onConfirm={() => restore.mutate(selected)} />
+        </>
+      )}
+    </Dialog>
+  );
+}
+
+function NodesDialog({ c, admin, onClose }: { c: Cluster; admin: boolean; onClose: () => void }) {
+  const q = useQuery({ queryKey: ["nodes", c.id], queryFn: () => api.nodes(c.id) });
+  const qc = useQueryClient();
+  const done = useInvalidate();
+  const [selected, setSelected] = useState<string | null>(null);
+  const remove = useMutation({
+    mutationFn: (n: string) => api.removeNode(c.id, n),
+    onSuccess: () => { done(); setSelected(null); qc.invalidateQueries({ queryKey: ["nodes", c.id] }); },
+  });
+  return (
+    <Dialog title={`Nodes of ${c.name}`} onClose={onClose}>
+      <ErrorBox error={q.error ?? remove.error} />
+      <ul className="max-h-60 divide-y divide-slate-100 overflow-y-auto text-sm">
+        {q.data?.map((n) => (
+          <li key={n.name} className="flex items-center justify-between gap-2 py-1.5">
+            <span><span className="font-mono">{n.name}</span> <span className="text-slate-500">{n.roles.join(", ")}</span> {n.ready ? "Ready" : <span className="text-red-700">Not ready</span>}</span>
+            {admin && <button disabled={!c.operations.removeNode.allowed} title={c.operations.removeNode.reason} onClick={() => setSelected(n.name)} className={`${btn} bg-red-100 text-red-900`}>Remove…</button>}
+          </li>
+        ))}
+        {q.data?.length === 0 && <li className="py-2 text-slate-500">No nodes registered yet.</li>}
+      </ul>
+      {selected && (
+        <>
+          <p className="text-sm">Rancher drains <code>{selected}</code> and removes it from {c.name}.</p>
+          <TypeToConfirm name={selected} label="Node name confirmation" action="Remove node" pending={remove.isPending} onConfirm={() => remove.mutate(selected)} />
+        </>
+      )}
+    </Dialog>
+  );
+}
+
 function UpgradeDialog({ c, versions, onClose }: { c: Cluster; versions: string[]; onClose: () => void }) {
   const [target, setTarget] = useState(versions.find((v) => v > c.kubernetesVersion) ?? versions.at(-1)!);
   const [confirmed, setConfirmed] = useState(false);
@@ -205,6 +278,10 @@ function Console({ me }: { me: Me }) {
                   <td className="px-3 py-2">{c.ready ? "Ready" : "Not ready"}</td>
                   <td className="flex justify-end gap-2 px-3 py-2">
                     <OpButton c={c} op="upgrade" label="Upgrade" cls="bg-amber-100 text-amber-900" onClick={() => setDialog({ kind: "upgrade", c })} />
+                    {c.tier === "provisioned" && <>
+                      <button className={`${btn} bg-slate-100`} onClick={() => setDialog({ kind: "snapshot", c })}>Backups</button>
+                      <button className={`${btn} bg-slate-100`} onClick={() => setDialog({ kind: "removeNode", c })}>Nodes</button>
+                    </>}
                     <OpButton c={c} op="register" label={c.tier === "attached" ? "Connect" : "Add nodes"} cls="bg-slate-100" onClick={() => setDialog({ kind: "register", c })} />
                     <OpButton c={c} op="delete" label={c.tier === "attached" ? "Disconnect" : "Delete"} cls="bg-red-100 text-red-900" onClick={() => setDialog({ kind: "delete", c })} />
                   </td>
@@ -234,6 +311,8 @@ function Console({ me }: { me: Me }) {
       </section>
 
       {dialog?.kind === "upgrade" && <UpgradeDialog c={dialog.c} versions={vs} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "snapshot" && <BackupsDialog c={dialog.c} admin={me.admin} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "removeNode" && <NodesDialog c={dialog.c} admin={me.admin} onClose={() => setDialog(null)} />}
       {dialog?.kind === "register" && <RegisterDialog c={dialog.c} onClose={() => setDialog(null)} />}
       {dialog?.kind === "delete" && <DeleteDialog c={dialog.c} onClose={() => setDialog(null)} />}
     </main>

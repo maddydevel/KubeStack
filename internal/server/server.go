@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -61,6 +62,11 @@ func (s *Server) Routes(portalDir string) http.Handler {
 	mux.Handle("POST /api/v1/clusters", s.wrap(true, false, s.createCluster))
 	mux.Handle("POST /api/v1/clusters/import", s.wrap(true, false, s.importCluster))
 	mux.Handle("GET /api/v1/clusters/{id}/registration", s.wrap(true, false, s.registration))
+	mux.Handle("GET /api/v1/clusters/{id}/snapshots", s.wrap(false, false, s.listSnapshots))
+	mux.Handle("POST /api/v1/clusters/{id}/snapshots", s.wrap(true, false, s.createSnapshot))
+	mux.Handle("POST /api/v1/clusters/{id}/restore", s.wrap(true, true, s.restoreSnapshot))
+	mux.Handle("GET /api/v1/clusters/{id}/nodes", s.wrap(false, false, s.listNodes))
+	mux.Handle("DELETE /api/v1/clusters/{id}/nodes/{node}", s.wrap(true, true, s.removeNode))
 	mux.Handle("POST /api/v1/clusters/{id}/upgrade", s.wrap(true, true, s.upgradeCluster))
 	mux.Handle("DELETE /api/v1/clusters/{id}", s.wrap(true, true, s.deleteCluster))
 	mux.Handle("GET /api/v1/audit", s.wrap(false, false, s.listAudit))
@@ -282,15 +288,15 @@ func (s *Server) upgradeCluster(r *http.Request, u auth.User) reply {
 	if ok, why := c.Allowed(domain.OpUpgrade); !ok {
 		return fail(http.StatusConflict, "upgrade not permitted", why)
 	}
-	snap, err := s.Engine.LatestSnapshot(ctx, id)
+	snaps, err := s.Engine.Snapshots(ctx, id)
 	if err != nil {
 		return engineErr(err)
 	}
-	ready, total, err := s.Engine.NodeHealth(ctx, id)
+	nodes, err := s.Engine.Nodes(ctx, id)
 	if err != nil {
 		return engineErr(err)
 	}
-	if f := upgrade.Check(c, req.KubernetesVersion, upgrade.Preflight{LatestSnapshot: snap, ReadyNodes: ready, TotalNodes: total}, s.Now()); len(f) > 0 {
+	if f := upgrade.Check(c, req.KubernetesVersion, upgrade.PreflightFrom(snaps, nodes), s.Now()); len(f) > 0 {
 		return fail(http.StatusPreconditionFailed, "pre-flight checks failed", f...)
 	}
 	after := c
@@ -352,4 +358,90 @@ func (s *Server) registration(r *http.Request, _ auth.User) reply {
 		return engineErr(err)
 	}
 	return reply{http.StatusOK, reg}
+}
+
+// gate loads the cluster and applies the capability check for op.
+func (s *Server) gate(r *http.Request, op domain.Operation) (domain.Cluster, *reply) {
+	c, err := s.Engine.GetCluster(r.Context(), r.PathValue("id"))
+	if err != nil {
+		rep := engineErr(err)
+		return c, &rep
+	}
+	if ok, why := c.Allowed(op); !ok {
+		rep := fail(http.StatusConflict, string(op)+" not permitted", why)
+		return c, &rep
+	}
+	return c, nil
+}
+
+func (s *Server) listSnapshots(r *http.Request, _ auth.User) reply {
+	snaps, err := s.Engine.Snapshots(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return engineErr(err)
+	}
+	return reply{http.StatusOK, snaps}
+}
+
+func (s *Server) createSnapshot(r *http.Request, u auth.User) reply {
+	c, rep := s.gate(r, domain.OpSnapshot)
+	if rep != nil {
+		return *rep
+	}
+	if err := s.lifecycle(r.Context(), u, "snapshot", c.ID, nil, nil, func() error { return s.Engine.CreateSnapshot(r.Context(), c.ID) }); err != nil {
+		return s.lifecycleErr(err)
+	}
+	return reply{http.StatusAccepted, map[string]string{"status": "snapshot requested"}}
+}
+
+func (s *Server) restoreSnapshot(r *http.Request, u auth.User) reply {
+	var req struct {
+		Snapshot string `json:"snapshot"`
+	}
+	if err := decode(r, &req); err != nil {
+		return fail(http.StatusBadRequest, "invalid JSON body")
+	}
+	c, rep := s.gate(r, domain.OpRestore)
+	if rep != nil {
+		return *rep
+	}
+	snaps, err := s.Engine.Snapshots(r.Context(), c.ID)
+	if err != nil {
+		return engineErr(err)
+	}
+	if !slices.ContainsFunc(snaps, func(x domain.Snapshot) bool { return x.Name == req.Snapshot && x.Successful }) {
+		return fail(http.StatusUnprocessableEntity, "snapshot not found or not successful for this cluster")
+	}
+	if err := s.lifecycle(r.Context(), u, "restore", c.ID, nil, req, func() error { return s.Engine.RestoreSnapshot(r.Context(), c.ID, req.Snapshot) }); err != nil {
+		return s.lifecycleErr(err)
+	}
+	return reply{http.StatusAccepted, map[string]string{"status": "restore requested"}}
+}
+
+func (s *Server) listNodes(r *http.Request, _ auth.User) reply {
+	nodes, err := s.Engine.Nodes(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return engineErr(err)
+	}
+	return reply{http.StatusOK, nodes}
+}
+
+func (s *Server) removeNode(r *http.Request, u auth.User) reply {
+	c, rep := s.gate(r, domain.OpRemove)
+	if rep != nil {
+		return *rep
+	}
+	node := r.PathValue("node")
+	nodes, err := s.Engine.Nodes(r.Context(), c.ID)
+	if err != nil {
+		return engineErr(err)
+	}
+	if why := domain.RemovalBlocked(nodes, node); why != "" {
+		return fail(http.StatusConflict, "node removal not permitted", why)
+	}
+	if err := s.lifecycle(r.Context(), u, "remove-node", c.ID, map[string]string{"node": node}, nil, func() error {
+		return s.Engine.RemoveNode(r.Context(), c.ID, node)
+	}); err != nil {
+		return s.lifecycleErr(err)
+	}
+	return reply{http.StatusAccepted, map[string]string{"status": "removing"}}
 }
