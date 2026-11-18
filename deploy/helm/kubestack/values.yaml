@@ -1,7 +1,7 @@
 image:
   registry: ""          # your mirror, e.g. registry.example.internal
   repository: kubestack/kubestack-api
-  tag: "0.1.0"
+  tag: "v0.2.0"
   pullPolicy: IfNotPresent
 
 adminGroup: kubestack-admins

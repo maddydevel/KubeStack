@@ -79,13 +79,15 @@ Portal (React/TS) ──/api/v1──▶ server ──▶ domain.Allowed / upgra
 | Component (portal, jsdom) | `make test` | — |
 | Integration (PostgreSQL 17) | `make test-integration` | Docker |
 | E2E (real community Rancher) | `make e2e` / `make e2e-matrix` | Docker (privileged) |
+| E2E real import (K3s) | `E2E_IMPORT_K3S=rancher/k3s:<v> make e2e` | Docker networking between containers (CI) |
+| Acceptance (real RKE2 nodes) | `hack/acceptance.sh` (`docs/acceptance.md`) | 4 VMs, IdP users |
 | Static | `make lint license-check helm-lint` | Docker for helm-lint |
 | Packaging | `make image` | Docker |
 
 All of it: `make ci`. CI runs the same targets (`.github/workflows/ci.yml`).
 
 ## 5. Release
-1. `make ci` green; e2e green for every version in `deploy/compat.yaml`.
+1. `make ci` green; e2e green for every version in `deploy/compat.yaml`; `docs/acceptance.md` passed on real VMs.
 2. Update `compliance/THIRD-PARTY.md` if dependencies changed; add ADR if behaviour changed.
 3. Bump `deploy/helm/kubestack/Chart.yaml` `version`/`appVersion`; tag `vX.Y.Z` (Conventional Commits).
 4. Push tag `vX.Y.Z`. `release.yml` builds the image, pushes it to GHCR, signs it with cosign (keyless,
