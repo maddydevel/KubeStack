@@ -87,9 +87,10 @@ func TestE2E(t *testing.T) {
 	}
 
 	name := fmt.Sprintf("ks-e2e-%d", time.Now().Unix()%100000)
-	c, err := e.CreateCluster(ctx, domain.CreateRequest{Name: name, KubernetesVersion: version})
+	oidc := &domain.ClusterOIDC{IssuerURL: "https://idp.kubestack-e2e.test", ClientID: "kubestack", GroupsClaim: "groups", AdminGroup: "e2e-admins"}
+	c, err := e.CreateCluster(ctx, domain.CreateRequest{Name: name, KubernetesVersion: version, OIDC: oidc})
 	if err != nil {
-		t.Fatalf("create (webhook must accept rkeConfig + ingress-controller=traefik): %v", err)
+		t.Fatalf("create (webhook must accept traefik, kube-apiserver OIDC args and the admin binding manifest): %v", err)
 	}
 	t.Cleanup(func() { _ = e.DeleteCluster(context.Background(), name) })
 	if c.Tier != domain.TierProvisioned || c.UpgradeOwner != domain.OwnerRancher {
@@ -148,6 +149,13 @@ func TestE2E(t *testing.T) {
 	}
 	if nodes, err := e.Nodes(ctx, name); err != nil || len(nodes) != 0 {
 		t.Fatalf("node query: %v %v", nodes, err)
+	}
+	if _, err := e.Access(ctx, name); !errors.Is(err, engine.ErrNotReady) {
+		t.Fatalf("access without nodes: %v", err)
+	}
+	p, _ := e.prov().Get(ctx, name, metav1.GetOptions{})
+	if args, _, _ := unstructured.NestedStringSlice(p.Object, "spec", "rkeConfig", "machineGlobalConfig", "kube-apiserver-arg"); !slices.Contains(args, "oidc-issuer-url="+oidc.IssuerURL) {
+		t.Fatalf("OIDC args not persisted: %v", args)
 	}
 	// The webhook must accept the one-shot etcd operations (no nodes, so Rancher can't act on them).
 	if err := e.CreateSnapshot(ctx, name); err != nil {

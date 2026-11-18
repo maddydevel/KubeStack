@@ -3,16 +3,16 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import App, { registrationScript } from "./App";
+import App, { kubeconfig, registrationScript } from "./App";
 import type { Cluster } from "./api";
 
 const prod: Cluster = {
   id: "prod-eu", name: "prod-eu", tier: "provisioned", upgradeOwner: "rancher", kubernetesVersion: "v1.34.12+rke2r1", ready: true,
-  operations: { upgrade: { allowed: true }, delete: { allowed: true }, register: { allowed: true }, snapshot: { allowed: true }, restore: { allowed: true }, removeNode: { allowed: true } },
+  operations: { upgrade: { allowed: true }, delete: { allowed: true }, register: { allowed: true }, snapshot: { allowed: true }, restore: { allowed: true }, removeNode: { allowed: true }, access: { allowed: true } },
 };
 const eks: Cluster = {
   id: "eks", name: "eks", tier: "hosted", upgradeOwner: "cloud", kubernetesVersion: "v1.33.4-eks", ready: true,
-  operations: { upgrade: { allowed: false, reason: "hosted clusters do not support upgrade from KubeStack" }, delete: { allowed: false, reason: "no" }, register: { allowed: false, reason: "no" }, snapshot: { allowed: false, reason: "no" }, restore: { allowed: false, reason: "no" }, removeNode: { allowed: false, reason: "no" } },
+  operations: { upgrade: { allowed: false, reason: "hosted clusters do not support upgrade from KubeStack" }, delete: { allowed: false, reason: "no" }, register: { allowed: false, reason: "no" }, snapshot: { allowed: false, reason: "no" }, restore: { allowed: false, reason: "no" }, removeNode: { allowed: false, reason: "no" }, access: { allowed: false, reason: "no" } },
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -132,4 +132,12 @@ test("node removal needs the node name typed", async () => {
   await user.click(screen.getByRole("button", { name: "Remove node" }));
   const call = fetchMock.mock.calls.find(([, i]) => i?.method === "DELETE")!;
   expect(call[0]).toBe("/api/v1/clusters/prod-eu/nodes/cp-0");
+});
+
+test("connect builds a credential-free kubeconfig that logs in via the user's IdP", () => {
+  const k = kubeconfig("prod-eu", { servers: ["https://203.0.113.5:6443"], certificateAuthorityData: "Q0E=", oidc: { issuerURL: "https://idp.example", clientID: "kubestack" } });
+  expect(k).toContain("server: https://203.0.113.5:6443");
+  expect(k).toContain("certificate-authority-data: Q0E=");
+  expect(k).toContain("--oidc-issuer-url=https://idp.example");
+  expect(k).not.toMatch(/token:|client-key|password/);
 });

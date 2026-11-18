@@ -187,6 +187,15 @@ func (e *Engine) Nodes(_ context.Context, id string) ([]domain.Node, error) {
 	return slices.Clone(c.Nodes), nil
 }
 
+func (e *Engine) Access(_ context.Context, id string) (domain.Access, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if _, err := e.get(id); err != nil {
+		return domain.Access{}, err
+	}
+	return domain.Access{Servers: []string{"https://" + id + ".example.internal:6443"}}, nil
+}
+
 func (e *Engine) RemoveNode(_ context.Context, id, node string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()

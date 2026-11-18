@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"kubestack.dev/kubestack/internal/auth"
+	"kubestack.dev/kubestack/internal/domain"
 	"kubestack.dev/kubestack/internal/engine"
 	"kubestack.dev/kubestack/internal/engine/fake"
 	"kubestack.dev/kubestack/internal/engine/rancher"
@@ -74,6 +75,7 @@ func run() error {
 
 	var a auth.Authenticator
 	var login *auth.Login
+	var clusterOIDC *domain.ClusterOIDC
 	if os.Getenv("KUBESTACK_DEV_AUTH") == "true" {
 		slog.Warn("DEV AUTH ENABLED: every request is an admin")
 		a = auth.Dev{Group: adminGroup}
@@ -82,7 +84,10 @@ func run() error {
 		if issuer == "" || client == "" {
 			return errors.New("KUBESTACK_OIDC_ISSUER and KUBESTACK_OIDC_CLIENT_ID are required (or KUBESTACK_DEV_AUTH=true)")
 		}
-		o, err := auth.NewOIDC(ctx, issuer, client, env("KUBESTACK_OIDC_GROUPS_CLAIM", "groups"))
+		groupsClaim := env("KUBESTACK_OIDC_GROUPS_CLAIM", "groups")
+		// Clusters trust the same IdP; a CLI needs a public client, so it may differ from the portal's.
+		clusterOIDC = &domain.ClusterOIDC{IssuerURL: issuer, ClientID: env("KUBESTACK_OIDC_CLI_CLIENT_ID", client), GroupsClaim: groupsClaim, AdminGroup: adminGroup}
+		o, err := auth.NewOIDC(ctx, issuer, client, groupsClaim)
 		if err != nil {
 			return err
 		}
@@ -93,7 +98,7 @@ func run() error {
 		}
 	}
 
-	s := &server.Server{Engine: eng, Store: st, Auth: a, AdminGroup: adminGroup, Now: time.Now}
+	s := &server.Server{Engine: eng, Store: st, Auth: a, AdminGroup: adminGroup, Now: time.Now, ClusterOIDC: clusterOIDC}
 	if login != nil {
 		s.Login = login
 	}

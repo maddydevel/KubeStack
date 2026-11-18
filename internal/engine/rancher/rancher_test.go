@@ -5,6 +5,7 @@ package rancher
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -175,5 +176,41 @@ func TestRegistration(t *testing.T) {
 	imp, err := e.ImportCluster(ctx, domain.ImportRequest{Name: "brownfield"})
 	if err != nil || imp.Tier != domain.TierAttached || imp.UpgradeOwner != domain.OwnerNone {
 		t.Errorf("import: %+v %v", imp, err)
+	}
+}
+
+func TestCreateWithOIDCAndAccess(t *testing.T) {
+	ctx := context.Background()
+	e := newEngine(
+		u("provisioning.cattle.io/v1", "Cluster", namespace, "rke", nil, map[string]any{
+			"spec": map[string]any{"rkeConfig": map[string]any{}}, "status": map[string]any{"clusterName": "c-m-1"}}),
+		u("management.cattle.io/v3", "Cluster", "", "c-m-1", nil, map[string]any{"status": map[string]any{"caCert": "Q0E="}}),
+		u("cluster.x-k8s.io/v1beta2", "Machine", namespace, "cp", map[string]any{"cluster.x-k8s.io/cluster-name": "rke", "rke.cattle.io/control-plane-role": "true"},
+			map[string]any{"status": map[string]any{"addresses": []any{
+				map[string]any{"type": "InternalIP", "address": "10.0.0.5"}, map[string]any{"type": "ExternalIP", "address": "203.0.113.5"}}}}),
+		u("cluster.x-k8s.io/v1beta2", "Machine", namespace, "w", map[string]any{"cluster.x-k8s.io/cluster-name": "rke", "rke.cattle.io/worker-role": "true"},
+			map[string]any{"status": map[string]any{"addresses": []any{map[string]any{"type": "InternalIP", "address": "10.0.0.9"}}}}),
+		u("provisioning.cattle.io/v1", "Cluster", namespace, "fresh", nil, map[string]any{"spec": map[string]any{"rkeConfig": map[string]any{}}}),
+	)
+	a, err := e.Access(ctx, "rke")
+	if err != nil || len(a.Servers) != 1 || a.Servers[0] != "https://203.0.113.5:6443" || a.CertificateAuthorityData != "Q0E=" {
+		t.Fatalf("access (control plane only, external IP preferred): %+v %v", a, err)
+	}
+	if _, err := e.Access(ctx, "fresh"); !errors.Is(err, engine.ErrNotReady) {
+		t.Fatalf("no nodes: %v", err)
+	}
+
+	oidc := &domain.ClusterOIDC{IssuerURL: "https://idp.example", ClientID: "kubestack", GroupsClaim: "groups", AdminGroup: "ops"}
+	if _, err := e.CreateCluster(ctx, domain.CreateRequest{Name: "o", KubernetesVersion: "v1.35.9+rke2r1", OIDC: oidc}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := e.prov().Get(ctx, "o", metav1.GetOptions{})
+	args, _, _ := unstructured.NestedStringSlice(p.Object, "spec", "rkeConfig", "machineGlobalConfig", "kube-apiserver-arg")
+	if !slices.Contains(args, "oidc-issuer-url=https://idp.example") || !slices.Contains(args, "oidc-groups-prefix=oidc:") {
+		t.Errorf("apiserver args: %v", args)
+	}
+	m, _, _ := unstructured.NestedString(p.Object, "spec", "rkeConfig", "additionalManifest")
+	if !strings.Contains(m, `name: "oidc:ops"`) || !strings.Contains(m, "cluster-admin") {
+		t.Errorf("admin binding manifest: %s", m)
 	}
 }

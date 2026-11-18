@@ -13,6 +13,8 @@ oidc:
   # Built-in portal login (authorization code + PKCE). Leave empty to use an OIDC-aware proxy instead.
   redirectURL: ""       # e.g. https://kubestack.example.internal/auth/callback
   clientSecretSecret: "" # Secret with key CLIENT_SECRET; omit for a public client
+  # Public client used by kubectl (kubelogin) for direct cluster access; defaults to clientID.
+  cliClientID: ""
 
 # Secret holding key DATABASE_URL (postgres://...). Required for a durable audit trail.
 databaseSecret: ""

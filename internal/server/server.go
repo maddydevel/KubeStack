@@ -28,6 +28,8 @@ type Server struct {
 	AdminGroup string // required for every mutating operation
 	Now        func() time.Time
 	Login      interface{ Routes(*http.ServeMux) } // optional portal login flow
+	// ClusterOIDC, when set, is applied to every new cluster so people reach it as themselves.
+	ClusterOIDC *domain.ClusterOIDC
 }
 
 // reply is what every handler returns; the wrapper serialises it (and stores it for idempotency).
@@ -65,6 +67,7 @@ func (s *Server) Routes(portalDir string) http.Handler {
 	mux.Handle("POST /api/v1/clusters/{id}/restore", s.wrap(true, true, s.restoreSnapshot))
 	mux.Handle("GET /api/v1/clusters/{id}/nodes", s.wrap(false, false, s.listNodes))
 	mux.Handle("DELETE /api/v1/clusters/{id}/nodes/{node}", s.wrap(true, true, s.removeNode))
+	mux.Handle("GET /api/v1/clusters/{id}/access", s.wrap(false, false, s.access))
 	mux.Handle("POST /api/v1/clusters/{id}/upgrade", s.wrap(true, true, s.upgradeCluster))
 	mux.Handle("DELETE /api/v1/clusters/{id}", s.wrap(true, true, s.deleteCluster))
 	mux.Handle("GET /api/v1/audit", s.wrap(false, false, s.listAudit))
@@ -259,6 +262,7 @@ func (s *Server) createCluster(r *http.Request, u auth.User) reply {
 	if err := req.Validate(upgrade.Versions()); err != nil {
 		return fail(http.StatusUnprocessableEntity, err.Error())
 	}
+	req.OIDC = s.ClusterOIDC
 	var created domain.Cluster
 	err := s.lifecycle(r.Context(), u, "create", req.Name, nil, req, func() (err error) {
 		created, err = s.Engine.CreateCluster(r.Context(), req)
@@ -442,4 +446,22 @@ func (s *Server) removeNode(r *http.Request, u auth.User) reply {
 		return s.lifecycleErr(err)
 	}
 	return reply{http.StatusAccepted, map[string]string{"status": "removing"}}
+}
+
+// access is for every signed-in user: it carries no credentials, and the cluster itself authorises
+// the person's own IdP token.
+func (s *Server) access(r *http.Request, _ auth.User) reply {
+	c, rep := s.gate(r, domain.OpAccess)
+	if rep != nil {
+		return *rep
+	}
+	if s.ClusterOIDC == nil {
+		return fail(http.StatusConflict, "direct access not configured", "KubeStack runs without OIDC, so clusters were not set up to trust an IdP")
+	}
+	a, err := s.Engine.Access(r.Context(), c.ID)
+	if err != nil {
+		return engineErr(err)
+	}
+	a.OIDC = s.ClusterOIDC
+	return reply{http.StatusOK, a}
 }

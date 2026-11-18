@@ -26,6 +26,9 @@ spec:
             - {name: KUBESTACK_OIDC_ISSUER, value: {{ .Values.oidc.issuer | quote }}}
             - {name: KUBESTACK_OIDC_CLIENT_ID, value: {{ .Values.oidc.clientID | quote }}}
             - {name: KUBESTACK_OIDC_GROUPS_CLAIM, value: {{ .Values.oidc.groupsClaim | quote }}}
+            {{- with .Values.oidc.cliClientID }}
+            - {name: KUBESTACK_OIDC_CLI_CLIENT_ID, value: {{ . | quote }}}
+            {{- end }}
             {{- with .Values.oidc.redirectURL }}
             - {name: KUBESTACK_OIDC_REDIRECT_URL, value: {{ . | quote }}}
             {{- end }}

@@ -1,7 +1,14 @@
 // Copyright 2026 The KubeStack Authors. All rights reserved.
 // Hand-written mirror of api/openapi.yaml. The browser only ever talks to the KubeStack API.
 
-export type Operation = "upgrade" | "delete" | "register" | "snapshot" | "restore" | "removeNode";
+export type Operation = "upgrade" | "delete" | "register" | "snapshot" | "restore" | "removeNode" | "access";
+
+/** Connection info for direct access with the user's own IdP token; contains no credentials. */
+export interface Access {
+  servers: string[];
+  certificateAuthorityData: string;
+  oidc: { issuerURL: string; clientID: string };
+}
 
 export interface Snapshot {
   name: string;
@@ -77,6 +84,7 @@ export const api = {
   create: (name: string, kubernetesVersion: string) => call<Cluster>("POST", "/clusters", { name, kubernetesVersion }),
   importCluster: (name: string) => call<Cluster>("POST", "/clusters/import", { name }),
   registration: (id: string) => call<Registration>("GET", `/clusters/${encodeURIComponent(id)}/registration`),
+  access: (id: string) => call<Access>("GET", `/clusters/${encodeURIComponent(id)}/access`),
   snapshots: (id: string) => call<Snapshot[]>("GET", `/clusters/${encodeURIComponent(id)}/snapshots`),
   takeSnapshot: (id: string) => call<unknown>("POST", `/clusters/${encodeURIComponent(id)}/snapshots`),
   restore: (id: string, snapshot: string) => call<unknown>("POST", `/clusters/${encodeURIComponent(id)}/restore`, { snapshot }, true),
