@@ -1,7 +1,7 @@
 // Copyright 2026 The KubeStack Authors. All rights reserved.
 // Hand-written mirror of api/openapi.yaml. The browser only ever talks to the KubeStack API.
 
-export type Operation = "upgrade" | "delete";
+export type Operation = "upgrade" | "delete" | "register";
 
 export interface Cluster {
   id: string;
@@ -21,6 +21,12 @@ export interface AuditRecord {
   clusterId: string;
   result: string;
   error?: string;
+}
+
+/** The command contains the literal "{token}"; the token stays in the referenced Secret. */
+export interface Registration {
+  command: string;
+  token: { namespace: string; name: string; key: string };
 }
 
 export interface Me {
@@ -57,6 +63,8 @@ export const api = {
   versions: () => call<string[]>("GET", "/versions"),
   audit: () => call<AuditRecord[]>("GET", "/audit?limit=50"),
   create: (name: string, kubernetesVersion: string) => call<Cluster>("POST", "/clusters", { name, kubernetesVersion }),
+  importCluster: (name: string) => call<Cluster>("POST", "/clusters/import", { name }),
+  registration: (id: string) => call<Registration>("GET", `/clusters/${encodeURIComponent(id)}/registration`),
   upgrade: (id: string, kubernetesVersion: string) =>
     call<Cluster>("POST", `/clusters/${encodeURIComponent(id)}/upgrade`, { kubernetesVersion }, true),
   remove: (id: string) => call<unknown>("DELETE", `/clusters/${encodeURIComponent(id)}`, undefined, true),

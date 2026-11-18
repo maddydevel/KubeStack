@@ -38,6 +38,11 @@ rules:
   - apiGroups: ["management.cattle.io"]
     resources: ["clusters"]
     verbs: ["get", "list"]
+  # Registration commands carry a "{token}" placeholder. Deliberately no access to Secrets:
+  # the API can never read join tokens (operators read them with their own credentials).
+  - apiGroups: ["management.cattle.io"]
+    resources: ["clusterregistrationtokens"]
+    verbs: ["list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

@@ -16,6 +16,8 @@ Rules referenced as **R#** are the numbered rules in `CLAUDE.md`.
 | F6 | Show an audit trail of every lifecycle operation (R16) |
 | F7 | Show *why* an operation is unavailable, using the server's reason (R6) |
 | F8 | Portal sign-in/sign-out via the organisation's OIDC provider |
+| F9 | Join nodes to a provisioned cluster without KubeStack ever handling the join token (R15) |
+| F10 | Import (attach) an existing cluster; disconnect it later without destroying it |
 
 ### Non-functional
 | ID | Requirement |
@@ -56,6 +58,8 @@ Portal (React/TS) ──/api/v1──▶ server ──▶ domain.Allowed / upgra
 | N2 | `upgrade/releases.json` embedded; system fonts | review checklist |
 | N3 | errors don't echo tokens/DSN | review checklist |
 | N4 | `auth.OIDC`, `server.wrap` | `TestCreateAndRBAC` (403 for non-admin) |
+| F9 | `server.registration`, `rancher.Registration` (placeholder + Secret ref), portal `RegisterDialog` | `rancher_test: TestRegistration` (inlined token refused), `TestImportAndRegistration`, `App.test: registration…`, e2e |
+| F10 | `server.importCluster`, `rancher.ImportCluster`, `domain.Allowed` (attached delete = disconnect) | `TestImportAndRegistration`, `TestRegistration`, e2e (import, command, disconnect) |
 | F8 | `auth.Login` (code flow + PKCE + nonce, cookie = ID token), CSRF header, portal sign-in | `auth: TestLoginFlow` (fake IdP: forged state, tampered token, CSRF), `TestMe`, `App.test: signed-out…`, `…CSRF header` |
 | N5 | `server.wrap` + `store.ClaimIdempotency` | `TestUpgradeFlow` (replay), `store_test` (10 concurrent claims → 1 winner) |
 | N6 | `server.lifecycle` | `TestUpgradeFlow` (attempt + success records) |
@@ -105,7 +109,6 @@ portal with an OIDC-aware proxy that forwards `Authorization: Bearer <id_token>`
 | Audit row with `attempt` but no `success`/`failure` | API crashed mid-op — check cluster state in Rancher, then record outcome |
 
 ## 7. Known gaps (backlog)
-- Node registration for new clusters (registration command embeds a bootstrap token, R15 — needs design).
 - Per-user downstream access via OIDC → impersonation (R16).
 - KubeStack-owned upgrades via System Upgrade Controller; `kubestack-controller` + CRDs.
 - SBOM/cosign, air-gap bundle, golangci-lint/eslint.
