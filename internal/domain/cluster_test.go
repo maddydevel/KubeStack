@@ -33,6 +33,7 @@ func TestAllowedByTier(t *testing.T) {
 		{prov, OpSnapshot, true}, {prov, OpRestore, true}, {prov, OpRemove, true}, {prov, OpRegister, true},
 		{att, OpSnapshot, false}, {att, OpRestore, false}, {att, OpDelete, true}, {att, OpRegister, true}, {att, OpUpgrade, false},
 		{host, OpRegister, false}, {host, OpDelete, false}, {host, OpRestore, false},
+		{Cluster{Tier: TierAttached, UpgradeOwner: OwnerRancher}, OpUpgrade, false},
 	} {
 		if ok, why := tc.c.Allowed(tc.op); ok != tc.want || (!ok && why == "") {
 			t.Errorf("%s %s: allowed=%v (%q), want %v", tc.c.Tier, tc.op, ok, why, tc.want)

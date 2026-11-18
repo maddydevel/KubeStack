@@ -35,7 +35,7 @@ func u(apiVersion, kind, ns, name string, labels map[string]any, fields map[stri
 
 func newEngine(objs ...runtime.Object) *Engine {
 	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
-		provGVR: "ClusterList", mgmtGVR: "ClusterList", snapGVR: "ETCDSnapshotList", machineGVR: "MachineList", crtGVR: "ClusterRegistrationTokenList",
+		provGVR: "ClusterList", mgmtGVR: "ClusterList", snapGVR: "ETCDSnapshotList", machineGVR: "MachineList", crtGVR: "ClusterRegistrationTokenList", settingGVR: "SettingList",
 	}, objs...)
 	return NewForClient(c)
 }
@@ -212,5 +212,39 @@ func TestCreateWithOIDCAndAccess(t *testing.T) {
 	m, _, _ := unstructured.NestedString(p.Object, "spec", "rkeConfig", "additionalManifest")
 	if !strings.Contains(m, `name: "oidc:ops"`) || !strings.Contains(m, "cluster-admin") {
 		t.Errorf("admin binding manifest: %s", m)
+	}
+}
+
+func TestImportedUpgradeOwner(t *testing.T) {
+	ctx := context.Background()
+	imported := func(name, mid string) *unstructured.Unstructured {
+		return u("provisioning.cattle.io/v1", "Cluster", namespace, name, nil, map[string]any{"status": map[string]any{"clusterName": mid}})
+	}
+	mgmt := func(mid, driver, anno string) *unstructured.Unstructured {
+		m := u("management.cattle.io/v3", "Cluster", "", mid, nil, map[string]any{"status": map[string]any{"driver": driver}})
+		if anno != "" {
+			m.SetAnnotations(map[string]string{versionMgmtAnno: anno})
+		}
+		return m
+	}
+	setting := u("management.cattle.io/v3", "Setting", "", versionMgmtSetting, nil, map[string]any{"value": "true"})
+	e := newEngine(setting,
+		imported("rke2-default", "c-1"), mgmt("c-1", "rke2", ""),
+		imported("k3s-optout", "c-2"), mgmt("c-2", "k3s", "false"),
+		imported("generic", "c-3"), mgmt("c-3", "imported", "true"),
+	)
+	want := map[string]domain.UpgradeOwner{"rke2-default": domain.OwnerRancher, "k3s-optout": domain.OwnerNone, "generic": domain.OwnerNone}
+	for id, owner := range want {
+		if c, err := e.GetCluster(ctx, id); err != nil || c.UpgradeOwner != owner || c.Tier != domain.TierAttached {
+			t.Errorf("%s: %+v %v, want owner %s", id, c, err, owner)
+		}
+	}
+	// Without the setting (e.g. no RBAC), only an explicit annotation counts.
+	e = newEngine(imported("rke2-default", "c-1"), mgmt("c-1", "rke2", ""), imported("rke2-on", "c-4"), mgmt("c-4", "rke2", "true"))
+	if c, _ := e.GetCluster(ctx, "rke2-default"); c.UpgradeOwner != domain.OwnerNone {
+		t.Errorf("default without setting: %+v", c)
+	}
+	if c, _ := e.GetCluster(ctx, "rke2-on"); c.UpgradeOwner != domain.OwnerRancher {
+		t.Errorf("annotation true: %+v", c)
 	}
 }

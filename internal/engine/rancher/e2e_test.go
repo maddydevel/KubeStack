@@ -179,6 +179,10 @@ func TestE2E(t *testing.T) {
 	if ic.Tier != domain.TierAttached || ic.UpgradeOwner != domain.OwnerNone {
 		t.Fatalf("imported cluster classified as %+v", ic)
 	}
+	// The setting that decides who owns imported RKE2/K3s upgrades must exist under this name.
+	if _, err := e.c.Resource(settingGVR).Get(ctx, versionMgmtSetting, metav1.GetOptions{}); err != nil {
+		t.Fatalf("setting %s: %v", versionMgmtSetting, err)
+	}
 	eventually(t, 2*time.Minute, "import command", func() (bool, error) {
 		reg, err = e.Registration(ctx, imp)
 		return err == nil, err

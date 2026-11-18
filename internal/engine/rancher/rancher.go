@@ -62,8 +62,32 @@ func mapErr(err error) error {
 	return err
 }
 
+// Rancher v2.15.3 pkg/controllers/management/importedclusterversionmanagement: Rancher upgrades an
+// imported RKE2/K3s cluster when this annotation is "true", or when it is absent/"system-default" and
+// the setting of the same name is "true".
+const (
+	versionMgmtAnno    = "rancher.io/imported-cluster-version-management"
+	versionMgmtSetting = "imported-cluster-version-management"
+)
+
+var settingGVR = schema.GroupVersionResource{Group: "management.cattle.io", Version: "v3", Resource: "settings"}
+
+// importedVersionManaged reads the global default; on any error it reports false (conservative).
+func (e *Engine) importedVersionManaged(ctx context.Context) bool {
+	s, err := e.c.Resource(settingGVR).Get(ctx, versionMgmtSetting, metav1.GetOptions{})
+	if err != nil {
+		return false
+	}
+	v, _, _ := unstructured.NestedString(s.Object, "value")
+	if v == "" {
+		v, _, _ = unstructured.NestedString(s.Object, "default")
+	}
+	return v == "true"
+}
+
 // toDomain classifies a provisioning cluster. mgmt is its management.cattle.io cluster, may be nil.
-func toDomain(p, mgmt *unstructured.Unstructured) domain.Cluster {
+// versionMgmtDefault is the imported-cluster version management setting.
+func toDomain(p, mgmt *unstructured.Unstructured, versionMgmtDefault bool) domain.Cluster {
 	ver, _, _ := unstructured.NestedString(p.Object, "spec", "kubernetesVersion")
 	ready, _, _ := unstructured.NestedBool(p.Object, "status", "ready")
 	c := domain.Cluster{ID: p.GetName(), Name: p.GetName(), KubernetesVersion: ver, Ready: ready,
@@ -86,8 +110,20 @@ func toDomain(p, mgmt *unstructured.Unstructured) domain.Cluster {
 			return c
 		}
 	}
-	// Imported clusters stay upgradeOwner=none (conservative: refuses upgrades) until we
-	// verify per-version semantics of mgmt spec.rke2Config/k3sConfig.
+	// Imported RKE2/K3s: if the engine manages their version, it owns upgrades (rule 5: KubeStack must
+	// never run its own upgrade plans there). Other imported clusters stay upgradeOwner=none.
+	if d, _, _ := unstructured.NestedString(mgmt.Object, "status", "driver"); d == "rke2" || d == "k3s" {
+		managed := versionMgmtDefault
+		switch mgmt.GetAnnotations()[versionMgmtAnno] {
+		case "true":
+			managed = true
+		case "false":
+			managed = false
+		}
+		if managed {
+			c.UpgradeOwner = domain.OwnerRancher
+		}
+	}
 	return c
 }
 
@@ -104,10 +140,11 @@ func (e *Engine) ListClusters(ctx context.Context) ([]domain.Cluster, error) {
 	for i := range ms.Items {
 		mgmt[ms.Items[i].GetName()] = &ms.Items[i]
 	}
+	def := e.importedVersionManaged(ctx)
 	out := make([]domain.Cluster, 0, len(ps.Items))
 	for i := range ps.Items {
 		id, _, _ := unstructured.NestedString(ps.Items[i].Object, "status", "clusterName")
-		out = append(out, toDomain(&ps.Items[i], mgmt[id]))
+		out = append(out, toDomain(&ps.Items[i], mgmt[id], def))
 	}
 	return out, nil
 }
@@ -127,7 +164,7 @@ func (e *Engine) GetCluster(ctx context.Context, id string) (domain.Cluster, err
 			mgmt = nil
 		}
 	}
-	return toDomain(p, mgmt), nil
+	return toDomain(p, mgmt, e.importedVersionManaged(ctx)), nil
 }
 
 func (e *Engine) CreateCluster(ctx context.Context, r domain.CreateRequest) (domain.Cluster, error) {
@@ -163,7 +200,7 @@ subjects:
 	if err != nil {
 		return domain.Cluster{}, mapErr(err)
 	}
-	return toDomain(created, nil), nil
+	return toDomain(created, nil, false), nil
 }
 
 // ImportCluster creates a provisioning cluster without rkeConfig: Rancher then issues an import
@@ -179,7 +216,7 @@ func (e *Engine) ImportCluster(ctx context.Context, r domain.ImportRequest) (dom
 	if err != nil {
 		return domain.Cluster{}, mapErr(err)
 	}
-	return toDomain(created, nil), nil
+	return toDomain(created, nil, false), nil
 }
 
 // Registration reads the cluster's ClusterRegistrationToken. Since Rancher v2.15 its status commands

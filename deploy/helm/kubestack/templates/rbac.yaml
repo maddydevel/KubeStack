@@ -43,6 +43,11 @@ rules:
   - apiGroups: ["management.cattle.io"]
     resources: ["clusterregistrationtokens"]
     verbs: ["list"]
+  # Who owns imported RKE2/K3s upgrades (rule 5).
+  - apiGroups: ["management.cattle.io"]
+    resources: ["settings"]
+    resourceNames: ["imported-cluster-version-management"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
