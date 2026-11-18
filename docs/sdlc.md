@@ -143,6 +143,17 @@ portal with an OIDC-aware proxy that forwards `Authorization: Bearer <id_token>`
 | Packaging | `make helm-lint`, `helm template`, `make image` | pass — 14 MB distroless image, runs `--read-only` as `nonroot` |
 | E2E | `make e2e` (community Rancher **v2.15.3**, air-gapped) | pass — create/link/list/snapshot/nodes/upgrade/delete |
 
+### v0.2 increment — 2026-11-18 (PRs #8–#13, each green in CI: verify + e2e)
+| PR | Scope | Local verification |
+|----|-------|--------------------|
+| #8 | Portal login (F8) | unit (fake IdP), portal |
+| #9 | Node registration, import/disconnect (F9, F10) | unit, portal, e2e: commands + token Secret ref, import |
+| #10 | etcd snapshot/restore, node removal (F11, F12) | unit, portal, e2e: webhook accepts generation patches |
+| #11 | SBOM, cosign release, air-gap bundle, golangci-lint/eslint, dev-up | bundle → mirror.sh → local registry; dev-up smoke |
+| #12 | Direct access with own OIDC identity (F13) | unit, portal, e2e: webhook accepts apiserver OIDC args |
+| #13 | Imported RKE2/K3s upgrade owner (R5) | unit, e2e: setting exists |
+Not exercised anywhere: real nodes (joining, draining, snapshot execution, kubectl OIDC login), `release.yml`.
+
 ### Findings fixed because of e2e against real Rancher
 1. **Stale release catalog**: Rancher v2.15.3 supports RKE2 v1.34–v1.36 (default v1.36.5); the bundled
    catalog was v1.32–v1.34. Refreshed from Rancher's own release list; e2e now fails if the catalog lacks
