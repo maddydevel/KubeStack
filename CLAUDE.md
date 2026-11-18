@@ -84,17 +84,21 @@ test/
 ```bash
 make build             # api binary + portal bundle
 make test              # Go unit tests (-race) + portal component tests
-make lint              # gofmt, go vet (incl. e2e tag), tsc --noEmit
+make lint              # gofmt, go vet, golangci-lint (Docker), tsc --noEmit, eslint
 make license-check     # hack/license-check.sh; fails on forbidden licenses
 make test-integration  # store contract against PostgreSQL in Docker
 make e2e [RANCHER=v2.x.y]  # engine e2e in an air-gapped community Rancher container
 make e2e-matrix        # e2e against every version in deploy/compat.yaml
 make helm-lint         # chart lint (helm in Docker)
-make image             # container image (REGISTRY=<mirror>)
+make image             # container image (REGISTRY=<mirror> TAG=<tag>)
+make sbom              # SPDX SBOM of the image (syft in Docker) -> bin/sbom.spdx.json
+make airgap-bundle     # image + chart + SBOM + compliance + mirror.sh -> bin/kubestack-airgap-<tag>.tar.gz
 make run-dev           # fake engine + memory store + dev auth at http://localhost:8080
-make ci                # everything above except e2e
+make dev-up / dev-down # disposable community Rancher; then make run-dev-rancher
+make ci                # everything above except e2e, sbom, airgap-bundle and dev-up
 ```
-Not yet implemented: `dev-up`, `generate`, `sbom`, `airgap-bundle`, golangci-lint/eslint.
+Releases: pushing a `v*.*.*` tag runs `.github/workflows/release.yml` (push, cosign keyless sign, SBOM attestation, bundle).
+Not yet implemented: `generate` (there are no CRD types yet).
 New Rancher version: add it to `deploy/compat.yaml` and its preload list to `hack/e2e-images/`.
 
 Run `make lint test license-check` before considering any task done.

@@ -18,4 +18,11 @@ All shipped dependencies are permissively licensed; verified by `make license-ch
 | react, react-dom, scheduler, loose-envify, js-tokens | MIT |
 | @tanstack/react-query, @tanstack/query-core | MIT |
 
-Build/test-only, not shipped: vite, tailwindcss, typescript (Apache-2.0), esbuild, vitest, jsdom, @testing-library/* (MIT).
+Build/test-only, not shipped: vite, tailwindcss, typescript (Apache-2.0), esbuild, vitest, jsdom, @testing-library/*,
+eslint, @eslint/js, typescript-eslint, eslint-plugin-react-hooks (MIT).
+
+## Dev and release tools (run in Docker or CI, never linked or shipped)
+| Tool | License |
+|------|---------|
+| golangci-lint | GPL-3.0 (tool only; R11 forbids GPL in shipped binaries/images, which this is not) |
+| syft, cosign, helm | Apache-2.0 |

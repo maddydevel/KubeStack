@@ -91,7 +91,7 @@ func TestE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create (webhook must accept rkeConfig + ingress-controller=traefik): %v", err)
 	}
-	t.Cleanup(func() { e.DeleteCluster(context.Background(), name) })
+	t.Cleanup(func() { _ = e.DeleteCluster(context.Background(), name) })
 	if c.Tier != domain.TierProvisioned || c.UpgradeOwner != domain.OwnerRancher {
 		t.Fatalf("created cluster classified as %+v", c)
 	}
@@ -167,7 +167,7 @@ func TestE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("import: %v", err)
 	}
-	t.Cleanup(func() { e.DeleteCluster(context.Background(), imp) })
+	t.Cleanup(func() { _ = e.DeleteCluster(context.Background(), imp) })
 	if ic.Tier != domain.TierAttached || ic.UpgradeOwner != domain.OwnerNone {
 		t.Fatalf("imported cluster classified as %+v", ic)
 	}

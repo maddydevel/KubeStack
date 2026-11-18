@@ -1,2 +1,5 @@
-# Images mirrored unmodified for air-gapped installs (keep upstream LICENSE/NOTICE).
-<registry>/kubestack/kubestack-api:<version>
+# Images an air-gapped install needs, mirrored unmodified (keep upstream LICENSE/NOTICE).
+# KubeStack itself ships one image; the air-gap bundle (make airgap-bundle) contains it.
+kubestack/kubestack-api:<version>
+# Not shipped by KubeStack, mirror from their upstream releases: community Rancher (deploy/compat.yaml)
+# and its own air-gap image list, and PostgreSQL if you run it in-cluster.

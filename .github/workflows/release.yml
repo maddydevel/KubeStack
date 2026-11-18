@@ -1,0 +1,38 @@
+# Copyright 2026 The KubeStack Authors. All rights reserved.
+# On a version tag: push the image, sign it keylessly (cosign, GitHub OIDC), attach an SPDX SBOM
+# attestation, and publish the air-gap bundle as a release asset. Runs only when a maintainer pushes a tag.
+name: release
+on:
+  push:
+    tags: ["v*.*.*"]
+permissions:
+  contents: write   # release assets
+  packages: write   # ghcr.io push
+  id-token: write   # keyless signing
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: ghcr.io/${{ github.repository_owner }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod}
+      - uses: actions/setup-node@v4
+        with: {node-version: 24, cache: npm, cache-dependency-path: portal/package-lock.json}
+      - run: cd portal && npm ci --no-audit --no-fund
+      - run: make lint test license-check
+      - run: make airgap-bundle
+      - uses: sigstore/cosign-installer@v3.7.0
+      - name: Push, sign and attest
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          image="$REGISTRY/kubestack/kubestack-api:$TAG"
+          docker push "$image"
+          digest="$image@$(docker inspect --format '{{index .RepoDigests 0}}' "$image" | cut -d@ -f2)"
+          cosign sign --yes "$digest"
+          cosign attest --yes --type spdxjson --predicate "bin/kubestack-airgap-$TAG/sbom.spdx.json" "$digest"
+      - name: Publish release
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: gh release create "$TAG" "bin/kubestack-airgap-$TAG.tar.gz" --generate-notes --verify-tag
