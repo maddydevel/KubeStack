@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -130,18 +131,33 @@ func (e *Engine) GetCluster(ctx context.Context, id string) (domain.Cluster, err
 }
 
 func (e *Engine) CreateCluster(ctx context.Context, r domain.CreateRequest) (domain.Cluster, error) {
+	// Traefik is the default ingress (rule 7). RKE2 option documented at
+	// https://docs.rke2.io/reference/server_config ("ingress-controller").
+	global := map[string]any{"ingress-controller": "traefik"}
+	rke := map[string]any{"machineGlobalConfig": global}
+	if o := r.OIDC; o != nil {
+		// kube-apiserver OIDC flags (https://kubernetes.io/docs/reference/access-authn-authz/authentication/#openid-connect-tokens);
+		// RKE2 passes kube-apiserver-arg through on server nodes.
+		global["kube-apiserver-arg"] = []any{
+			"oidc-issuer-url=" + o.IssuerURL, "oidc-client-id=" + o.ClientID,
+			"oidc-username-claim=email", "oidc-groups-claim=" + o.GroupsClaim,
+			"oidc-username-prefix=" + domain.OIDCPrefix, "oidc-groups-prefix=" + domain.OIDCPrefix,
+		}
+		// Applied by Rancher once the cluster is up: the admin group gets cluster-admin, as itself.
+		rke["additionalManifest"] = fmt.Sprintf(`apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubestack-admins
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-admin}
+subjects:
+  - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: %q}
+`, domain.OIDCPrefix+o.AdminGroup)
+	}
 	obj := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "provisioning.cattle.io/v1",
 		"kind":       "Cluster",
 		"metadata":   map[string]any{"name": r.Name, "namespace": namespace},
-		"spec": map[string]any{
-			"kubernetesVersion": r.KubernetesVersion,
-			"rkeConfig": map[string]any{
-				// Traefik is the default ingress (rule 7). RKE2 option documented at
-				// https://docs.rke2.io/reference/server_config ("ingress-controller").
-				"machineGlobalConfig": map[string]any{"ingress-controller": "traefik"},
-			},
-		},
+		"spec":       map[string]any{"kubernetesVersion": r.KubernetesVersion, "rkeConfig": rke},
 	}}
 	created, err := e.prov().Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {
@@ -306,3 +322,47 @@ func (e *Engine) RemoveNode(ctx context.Context, id, node string) error {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// Access: servers are the control-plane machines' CAPI status.addresses (RKE2's serving cert covers node
+// IPs) on 6443. The CA is the management cluster's status.caCert, which Rancher's agent tunnel copies from
+// the downstream in-cluster CA (Rancher v2.15.3 pkg/tunnelserver/mcmauthorizer/tunnel.go). status.apiEndpoint
+// is the in-cluster service address and is not reachable by people, so it is not used.
+func (e *Engine) Access(ctx context.Context, id string) (domain.Access, error) {
+	p, err := e.prov().Get(ctx, id, metav1.GetOptions{})
+	if err != nil {
+		return domain.Access{}, mapErr(err)
+	}
+	l, err := e.c.Resource(machineGVR).Namespace(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "cluster.x-k8s.io/cluster-name=" + id + "," + roleLabels["controlplane"] + "=true"})
+	if err != nil {
+		return domain.Access{}, err
+	}
+	var a domain.Access
+	for _, m := range l.Items {
+		addrs, _, _ := unstructured.NestedSlice(m.Object, "status", "addresses")
+		best := ""
+		for _, x := range addrs {
+			am, _ := x.(map[string]any)
+			switch addr, _ := am["address"].(string); am["type"] {
+			case "ExternalIP":
+				best = addr
+			case "InternalIP":
+				if best == "" {
+					best = addr
+				}
+			}
+		}
+		if best != "" {
+			a.Servers = append(a.Servers, "https://"+net.JoinHostPort(best, "6443"))
+		}
+	}
+	if len(a.Servers) == 0 {
+		return domain.Access{}, fmt.Errorf("%w: no control-plane node has an address yet", engine.ErrNotReady)
+	}
+	if mid, _, _ := unstructured.NestedString(p.Object, "status", "clusterName"); mid != "" {
+		if m, err := e.c.Resource(mgmtGVR).Get(ctx, mid, metav1.GetOptions{}); err == nil {
+			a.CertificateAuthorityData, _, _ = unstructured.NestedString(m.Object, "status", "caCert")
+		}
+	}
+	return a, nil
+}

@@ -31,4 +31,6 @@ type Engine interface {
 	RestoreSnapshot(ctx context.Context, id, snapshot string) error
 	Nodes(ctx context.Context, id string) ([]domain.Node, error)
 	RemoveNode(ctx context.Context, id, node string) error
+	// Access returns the API server addresses and CA (no credentials); ErrNotReady until nodes exist.
+	Access(ctx context.Context, id string) (domain.Access, error)
 }

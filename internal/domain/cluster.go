@@ -35,9 +35,10 @@ const (
 	OpSnapshot Operation = "snapshot" // take an etcd snapshot
 	OpRestore  Operation = "restore"  // restore etcd from a snapshot (destructive)
 	OpRemove   Operation = "removeNode"
+	OpAccess   Operation = "access" // direct API access with the user's own identity
 )
 
-var Operations = []Operation{OpUpgrade, OpDelete, OpRegister, OpSnapshot, OpRestore, OpRemove}
+var Operations = []Operation{OpUpgrade, OpDelete, OpRegister, OpSnapshot, OpRestore, OpRemove, OpAccess}
 
 type Cluster struct {
 	ID                string       `json:"id"`
@@ -60,11 +61,14 @@ func (c Cluster) Allowed(op Operation) (bool, string) {
 	if op == OpDelete && c.Tier == TierAttached {
 		return true, ""
 	}
+	if op == OpAccess && c.Tier != TierProvisioned {
+		return false, "KubeStack configures identity only on clusters it provisions; use the cluster's own access setup"
+	}
 	if c.Tier != TierProvisioned {
 		return false, fmt.Sprintf("%s clusters do not support %s from KubeStack", c.Tier, op)
 	}
 	switch op {
-	case OpDelete, OpSnapshot, OpRestore, OpRemove:
+	case OpDelete, OpSnapshot, OpRestore, OpRemove, OpAccess:
 		return true, ""
 	case OpUpgrade:
 		switch c.UpgradeOwner {
@@ -82,6 +86,26 @@ func (c Cluster) Allowed(op Operation) (bool, string) {
 type CreateRequest struct {
 	Name              string `json:"name"`
 	KubernetesVersion string `json:"kubernetesVersion"`
+	// OIDC is set by the server from its own configuration, never from the request body.
+	OIDC *ClusterOIDC `json:"-"`
+}
+
+// ClusterOIDC makes a cluster's API server trust the organisation's IdP so people use their own
+// identity downstream (rule 16). Usernames and groups get the "oidc:" prefix inside the cluster.
+type ClusterOIDC struct {
+	IssuerURL   string `json:"issuerURL"`
+	ClientID    string `json:"clientID"`
+	GroupsClaim string `json:"-"`
+	AdminGroup  string `json:"-"` // bound to cluster-admin as "oidc:<group>"
+}
+
+const OIDCPrefix = "oidc:"
+
+// Access is how a person reaches a cluster's API directly with their own IdP token. No credentials.
+type Access struct {
+	Servers                  []string     `json:"servers"`
+	CertificateAuthorityData string       `json:"certificateAuthorityData"` // base64 PEM, may be empty
+	OIDC                     *ClusterOIDC `json:"oidc"`
 }
 
 var dnsLabel = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)

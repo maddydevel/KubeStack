@@ -37,6 +37,13 @@ paths:
       responses:
         "200": {description: registration, content: {application/json: {schema: {$ref: "#/components/schemas/Registration"}}}}
         "409": {$ref: "#/components/responses/Error"}
+  /api/v1/clusters/{id}/access:
+    parameters: [{$ref: "#/components/parameters/id"}]
+    get:
+      summary: Direct-access connection info for the user's own IdP identity (no credentials; any signed-in user)
+      responses:
+        "200": {description: access, content: {application/json: {schema: {$ref: "#/components/schemas/Access"}}}}
+        "409": {$ref: "#/components/responses/Error"}
   /api/v1/clusters/{id}/snapshots:
     parameters: [{$ref: "#/components/parameters/id"}]
     get: {summary: etcd snapshots, responses: {"200": {description: snapshots, content: {application/json: {schema: {type: array, items: {$ref: "#/components/schemas/Snapshot"}}}}}}}
@@ -101,7 +108,13 @@ components:
         upgradeOwner: {$ref: "#/components/schemas/UpgradeOwner"}
         kubernetesVersion: {type: string}
         ready: {type: boolean}
-        operations: {type: object, properties: {upgrade: {$ref: "#/components/schemas/Permission"}, delete: {$ref: "#/components/schemas/Permission"}, register: {$ref: "#/components/schemas/Permission"}, snapshot: {$ref: "#/components/schemas/Permission"}, restore: {$ref: "#/components/schemas/Permission"}, removeNode: {$ref: "#/components/schemas/Permission"}}}
+        operations: {type: object, properties: {upgrade: {$ref: "#/components/schemas/Permission"}, delete: {$ref: "#/components/schemas/Permission"}, register: {$ref: "#/components/schemas/Permission"}, snapshot: {$ref: "#/components/schemas/Permission"}, restore: {$ref: "#/components/schemas/Permission"}, removeNode: {$ref: "#/components/schemas/Permission"}, access: {$ref: "#/components/schemas/Permission"}}}
+    Access:
+      type: object
+      properties:
+        servers: {type: array, items: {type: string}}
+        certificateAuthorityData: {type: string, description: base64 PEM; may be empty}
+        oidc: {type: object, properties: {issuerURL: {type: string}, clientID: {type: string}}}
     Snapshot: {type: object, properties: {name: {type: string}, createdAt: {type: string, format: date-time}, successful: {type: boolean}}}
     Node: {type: object, properties: {name: {type: string}, ready: {type: boolean}, roles: {type: array, items: {type: string, enum: [etcd, controlplane, worker]}}}}
     Registration:

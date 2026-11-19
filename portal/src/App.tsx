@@ -1,7 +1,7 @@
 // Copyright 2026 The KubeStack Authors. All rights reserved.
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, type Cluster, type Me, type Operation, type Registration } from "./api";
+import { api, ApiError, type Access, type Cluster, type Me, type Operation, type Registration } from "./api";
 
 function ErrorBox({ error }: { error: unknown }) {
   if (!error) return null;
@@ -168,6 +168,45 @@ function NodesDialog({ c, admin, onClose }: { c: Cluster; admin: boolean; onClos
   );
 }
 
+/** A kubeconfig without credentials: kubectl obtains the user's own IdP token via the kubelogin plugin. */
+export function kubeconfig(name: string, a: Access): string {
+  const ca = a.certificateAuthorityData ? `\n    certificate-authority-data: ${a.certificateAuthorityData}` : "";
+  return `apiVersion: v1
+kind: Config
+clusters:
+- name: ${name}
+  cluster:
+    server: ${a.servers[0]}${ca}
+users:
+- name: ${name}-oidc
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1
+      command: kubectl
+      args: [oidc-login, get-token, --oidc-issuer-url=${a.oidc.issuerURL}, --oidc-client-id=${a.oidc.clientID}, --oidc-extra-scope=email, --oidc-extra-scope=groups]
+      interactiveMode: IfAvailable
+contexts:
+- name: ${name}
+  context: {cluster: ${name}, user: ${name}-oidc}
+current-context: ${name}
+`;
+}
+
+function AccessDialog({ c, onClose }: { c: Cluster; onClose: () => void }) {
+  const q = useQuery({ queryKey: ["access", c.id], queryFn: () => api.access(c.id) });
+  return (
+    <Dialog title={`Connect to ${c.name} as yourself`} onClose={onClose}>
+      <p className="text-sm">
+        Save as a kubeconfig file. kubectl signs you in with your organisation account (needs the <code>kubelogin</code> plugin,
+        {" "}<code>kubectl oidc-login</code>); the cluster decides what you may do. No credentials are stored in this file.
+      </p>
+      <ErrorBox error={q.error} />
+      {q.data && <pre aria-label="Kubeconfig" className="max-h-80 overflow-auto rounded bg-slate-900 p-3 text-xs text-slate-100">{kubeconfig(c.name, q.data)}</pre>}
+      {q.data && q.data.servers.length > 1 && <p className="text-xs text-slate-500">Other control-plane servers: {q.data.servers.slice(1).join(", ")}</p>}
+    </Dialog>
+  );
+}
+
 function UpgradeDialog({ c, versions, onClose }: { c: Cluster; versions: string[]; onClose: () => void }) {
   const [target, setTarget] = useState(versions.find((v) => v > c.kubernetesVersion) ?? versions.at(-1)!);
   const [confirmed, setConfirmed] = useState(false);
@@ -279,6 +318,7 @@ function Console({ me }: { me: Me }) {
                   <td className="flex justify-end gap-2 px-3 py-2">
                     <OpButton c={c} op="upgrade" label="Upgrade" cls="bg-amber-100 text-amber-900" onClick={() => setDialog({ kind: "upgrade", c })} />
                     {c.tier === "provisioned" && <>
+                      <OpButton c={c} op="access" label="Connect" cls="bg-emerald-100 text-emerald-900" onClick={() => setDialog({ kind: "access", c })} />
                       <button className={`${btn} bg-slate-100`} onClick={() => setDialog({ kind: "snapshot", c })}>Backups</button>
                       <button className={`${btn} bg-slate-100`} onClick={() => setDialog({ kind: "removeNode", c })}>Nodes</button>
                     </>}
@@ -311,6 +351,7 @@ function Console({ me }: { me: Me }) {
       </section>
 
       {dialog?.kind === "upgrade" && <UpgradeDialog c={dialog.c} versions={vs} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "access" && <AccessDialog c={dialog.c} onClose={() => setDialog(null)} />}
       {dialog?.kind === "snapshot" && <BackupsDialog c={dialog.c} admin={me.admin} onClose={() => setDialog(null)} />}
       {dialog?.kind === "removeNode" && <NodesDialog c={dialog.c} admin={me.admin} onClose={() => setDialog(null)} />}
       {dialog?.kind === "register" && <RegisterDialog c={dialog.c} onClose={() => setDialog(null)} />}
