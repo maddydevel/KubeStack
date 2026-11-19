@@ -4,6 +4,8 @@ package rancher
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	"kubestack.dev/kubestack/internal/domain"
+	"kubestack.dev/kubestack/internal/engine"
 )
 
 func u(apiVersion, kind, ns, name string, labels map[string]any, fields map[string]any) *unstructured.Unstructured {
@@ -29,7 +32,7 @@ func u(apiVersion, kind, ns, name string, labels map[string]any, fields map[stri
 
 func newEngine(objs ...runtime.Object) *Engine {
 	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
-		provGVR: "ClusterList", mgmtGVR: "ClusterList", snapGVR: "ETCDSnapshotList", machineGVR: "MachineList",
+		provGVR: "ClusterList", mgmtGVR: "ClusterList", snapGVR: "ETCDSnapshotList", machineGVR: "MachineList", crtGVR: "ClusterRegistrationTokenList",
 	}, objs...)
 	return NewForClient(c)
 }
@@ -105,5 +108,43 @@ func TestClassifyAndLifecycle(t *testing.T) {
 	}
 	if _, err := e.GetCluster(ctx, "new"); err == nil {
 		t.Error("deleted cluster still found")
+	}
+}
+
+func crt(ns, secret, field, cmd string) *unstructured.Unstructured {
+	return u("management.cattle.io/v3", "ClusterRegistrationToken", ns, "default-token", nil, map[string]any{
+		"status": map[string]any{"tokenSecretName": secret, field: cmd, "token": "must-never-be-read"},
+	})
+}
+
+func TestRegistration(t *testing.T) {
+	ctx := context.Background()
+	e := newEngine(
+		u("provisioning.cattle.io/v1", "Cluster", namespace, "rke", nil, map[string]any{
+			"spec": map[string]any{"rkeConfig": map[string]any{}}, "status": map[string]any{"clusterName": "c-m-1"}}),
+		crt("c-m-1", "crt-token-abc", "nodeCommand", "curl -fL https://r/system-agent-install.sh | sudo sh -s - --token {token}"),
+		u("provisioning.cattle.io/v1", "Cluster", namespace, "imp", nil, map[string]any{"status": map[string]any{"clusterName": "c-2"}}),
+		crt("c-2", "crt-token-def", "command", "kubectl apply -f https://r/v3/import/{token}_c-2.yaml"),
+		u("provisioning.cattle.io/v1", "Cluster", namespace, "leaky", nil, map[string]any{
+			"spec": map[string]any{"rkeConfig": map[string]any{}}, "status": map[string]any{"clusterName": "c-3"}}),
+		crt("c-3", "crt-token-x", "nodeCommand", "curl ... --token s3cr3t"),
+		u("provisioning.cattle.io/v1", "Cluster", namespace, "fresh", nil, nil),
+	)
+	r, err := e.Registration(ctx, "rke")
+	if err != nil || !strings.Contains(r.Command, "system-agent-install") || r.Token != (domain.SecretRef{Namespace: "c-m-1", Name: "crt-token-abc", Key: "token"}) {
+		t.Errorf("provisioned: %+v %v", r, err)
+	}
+	if r, err := e.Registration(ctx, "imp"); err != nil || !strings.HasPrefix(r.Command, "kubectl apply") {
+		t.Errorf("imported: %+v %v", r, err)
+	}
+	if r, err := e.Registration(ctx, "leaky"); err == nil || strings.Contains(r.Command+err.Error(), "s3cr3t") {
+		t.Errorf("command with inlined token must be refused without echoing it: %+v %v", r, err)
+	}
+	if _, err := e.Registration(ctx, "fresh"); !errors.Is(err, engine.ErrNotReady) {
+		t.Errorf("unlinked cluster: %v", err)
+	}
+	imp, err := e.ImportCluster(ctx, domain.ImportRequest{Name: "brownfield"})
+	if err != nil || imp.Tier != domain.TierAttached || imp.UpgradeOwner != domain.OwnerNone {
+		t.Errorf("import: %+v %v", imp, err)
 	}
 }

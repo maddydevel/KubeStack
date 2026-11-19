@@ -22,11 +22,26 @@ paths:
         "403": {$ref: "#/components/responses/Error"}
         "409": {$ref: "#/components/responses/Error"}
         "422": {$ref: "#/components/responses/Error"}
+  /api/v1/clusters/import:
+    post:
+      summary: Attach an existing cluster (admin group); then GET its registration to connect it
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [name], properties: {name: {type: string}}}}}}
+      responses:
+        "201": {description: created, content: {application/json: {schema: {$ref: "#/components/schemas/Cluster"}}}}
+        "409": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+  /api/v1/clusters/{id}/registration:
+    parameters: [{$ref: "#/components/parameters/id"}]
+    get:
+      summary: How to join nodes (provisioned) or connect the agent (attached). Contains no secret (admin group)
+      responses:
+        "200": {description: registration, content: {application/json: {schema: {$ref: "#/components/schemas/Registration"}}}}
+        "409": {$ref: "#/components/responses/Error"}
   /api/v1/clusters/{id}:
     parameters: [{$ref: "#/components/parameters/id"}]
     get: {summary: Get cluster, responses: {"200": {description: cluster, content: {application/json: {schema: {$ref: "#/components/schemas/Cluster"}}}}, "404": {$ref: "#/components/responses/Error"}}}
     delete:
-      summary: Delete cluster (admin group, provisioned tier only)
+      summary: Delete a provisioned cluster, or disconnect an attached one (admin group)
       parameters: [{$ref: "#/components/parameters/idempotencyKey"}]
       responses: {"202": {description: deleting}, "409": {$ref: "#/components/responses/Error"}}
   /api/v1/clusters/{id}/upgrade:
@@ -66,7 +81,13 @@ components:
         upgradeOwner: {$ref: "#/components/schemas/UpgradeOwner"}
         kubernetesVersion: {type: string}
         ready: {type: boolean}
-        operations: {type: object, properties: {upgrade: {$ref: "#/components/schemas/Permission"}, delete: {$ref: "#/components/schemas/Permission"}}}
+        operations: {type: object, properties: {upgrade: {$ref: "#/components/schemas/Permission"}, delete: {$ref: "#/components/schemas/Permission"}, register: {$ref: "#/components/schemas/Permission"}}}
+    Registration:
+      type: object
+      description: command contains the literal "{token}"; read the token from the referenced Secret with your own credentials.
+      properties:
+        command: {type: string}
+        token: {type: object, properties: {namespace: {type: string}, name: {type: string}, key: {type: string}}}
     CreateRequest:
       type: object
       required: [name, kubernetesVersion]

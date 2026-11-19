@@ -59,6 +59,8 @@ func (s *Server) Routes(portalDir string) http.Handler {
 	mux.Handle("GET /api/v1/clusters", s.wrap(false, false, s.listClusters))
 	mux.Handle("GET /api/v1/clusters/{id}", s.wrap(false, false, s.getCluster))
 	mux.Handle("POST /api/v1/clusters", s.wrap(true, false, s.createCluster))
+	mux.Handle("POST /api/v1/clusters/import", s.wrap(true, false, s.importCluster))
+	mux.Handle("GET /api/v1/clusters/{id}/registration", s.wrap(true, false, s.registration))
 	mux.Handle("POST /api/v1/clusters/{id}/upgrade", s.wrap(true, true, s.upgradeCluster))
 	mux.Handle("DELETE /api/v1/clusters/{id}", s.wrap(true, true, s.deleteCluster))
 	mux.Handle("GET /api/v1/audit", s.wrap(false, false, s.listAudit))
@@ -154,7 +156,7 @@ func engineErr(err error) reply {
 	switch {
 	case errors.Is(err, engine.ErrNotFound):
 		return fail(http.StatusNotFound, err.Error())
-	case errors.Is(err, engine.ErrConflict):
+	case errors.Is(err, engine.ErrConflict), errors.Is(err, engine.ErrNotReady):
 		return fail(http.StatusConflict, err.Error())
 	}
 	slog.Error("engine", "err", err)
@@ -314,4 +316,40 @@ func (s *Server) deleteCluster(r *http.Request, u auth.User) reply {
 		return s.lifecycleErr(err)
 	}
 	return reply{http.StatusAccepted, map[string]string{"status": "deleting"}}
+}
+
+func (s *Server) importCluster(r *http.Request, u auth.User) reply {
+	var req domain.ImportRequest
+	if err := decode(r, &req); err != nil {
+		return fail(http.StatusBadRequest, "invalid JSON body")
+	}
+	if err := req.Validate(); err != nil {
+		return fail(http.StatusUnprocessableEntity, err.Error())
+	}
+	var created domain.Cluster
+	err := s.lifecycle(r.Context(), u, "import", req.Name, nil, req, func() (err error) {
+		created, err = s.Engine.ImportCluster(r.Context(), req)
+		return err
+	})
+	if err != nil {
+		return s.lifecycleErr(err)
+	}
+	return reply{http.StatusCreated, view(created)}
+}
+
+// registration is read-only and holds no secret: the token stays in the referenced Secret.
+func (s *Server) registration(r *http.Request, _ auth.User) reply {
+	ctx, id := r.Context(), r.PathValue("id")
+	c, err := s.Engine.GetCluster(ctx, id)
+	if err != nil {
+		return engineErr(err)
+	}
+	if ok, why := c.Allowed(domain.OpRegister); !ok {
+		return fail(http.StatusConflict, "registration not permitted", why)
+	}
+	reg, err := s.Engine.Registration(ctx, id)
+	if err != nil {
+		return engineErr(err)
+	}
+	return reply{http.StatusOK, reg}
 }

@@ -78,6 +78,29 @@ func (e *Engine) CreateCluster(_ context.Context, r domain.CreateRequest) (domai
 	return c.Cluster, nil
 }
 
+func (e *Engine) ImportCluster(_ context.Context, r domain.ImportRequest) (domain.Cluster, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if _, ok := e.clusters[r.Name]; ok {
+		return domain.Cluster{}, engine.ErrConflict
+	}
+	c := &Cluster{Cluster: domain.Cluster{ID: r.Name, Name: r.Name, Tier: domain.TierAttached, UpgradeOwner: domain.OwnerNone}}
+	e.clusters[c.ID] = c
+	return c.Cluster, nil
+}
+
+func (e *Engine) Registration(_ context.Context, id string) (domain.Registration, error) {
+	c, err := e.GetCluster(context.Background(), id)
+	if err != nil {
+		return domain.Registration{}, err
+	}
+	cmd := "curl -fL https://engine.example/install.sh | sudo sh -s - --token " + domain.TokenPlaceholder
+	if c.Tier == domain.TierAttached {
+		cmd = "kubectl apply -f https://engine.example/import/" + domain.TokenPlaceholder + "_" + id + ".yaml"
+	}
+	return domain.Registration{Command: cmd, Token: domain.SecretRef{Namespace: "kubestack-demo", Name: "join-" + id, Key: "token"}}, nil
+}
+
 func (e *Engine) UpgradeCluster(_ context.Context, id, v string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()

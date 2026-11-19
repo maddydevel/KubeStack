@@ -3,16 +3,16 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import App from "./App";
+import App, { registrationScript } from "./App";
 import type { Cluster } from "./api";
 
 const prod: Cluster = {
   id: "prod-eu", name: "prod-eu", tier: "provisioned", upgradeOwner: "rancher", kubernetesVersion: "v1.34.12+rke2r1", ready: true,
-  operations: { upgrade: { allowed: true }, delete: { allowed: true } },
+  operations: { upgrade: { allowed: true }, delete: { allowed: true }, register: { allowed: true } },
 };
 const eks: Cluster = {
   id: "eks", name: "eks", tier: "hosted", upgradeOwner: "cloud", kubernetesVersion: "v1.33.4-eks", ready: true,
-  operations: { upgrade: { allowed: false, reason: "hosted clusters do not support upgrade from KubeStack" }, delete: { allowed: false, reason: "no" } },
+  operations: { upgrade: { allowed: false, reason: "hosted clusters do not support upgrade from KubeStack" }, delete: { allowed: false, reason: "no" }, register: { allowed: false, reason: "no" } },
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -25,6 +25,7 @@ beforeEach(() => {
       if (url.endsWith("/clusters") && (!init?.method || init.method === "GET")) return [prod, eks];
       if (url.endsWith("/versions")) return ["v1.34.12+rke2r1", "v1.35.9+rke2r1"];
       if (url.includes("/audit")) return [];
+      if (url.endsWith("/registration")) return { command: "curl -fL https://e/install.sh | sudo sh -s - --token {token}", token: { namespace: "c-m-1", name: "crt-token-a", key: "token" } };
       if (url.endsWith("/upgrade")) return { error: "pre-flight checks failed", details: ["latest etcd snapshot is 72h0m0s old (max 24h0m0s)"] };
       return { status: "deleting" };
     })();
@@ -89,4 +90,19 @@ test("API calls carry the CSRF header", async () => {
   await rowFor("prod-eu");
   const call = fetchMock.mock.calls.find(([u]) => String(u).endsWith("/clusters"))!;
   expect((call[1].headers as Record<string, string>)["X-KubeStack-Request"]).toBe("1");
+});
+
+test("registration shows a script that reads the token via kubectl, never the token itself", async () => {
+  const user = userEvent.setup();
+  renderApp();
+  await user.click(within(await rowFor("prod-eu")).getByRole("button", { name: "Add nodes" }));
+  const script = (await screen.findByLabelText("Registration command")).textContent!;
+  expect(script).toContain("kubectl -n c-m-1 get secret crt-token-a -o jsonpath='{.data.token}'");
+  expect(script).toContain("--token ${TOKEN} --etcd --controlplane --worker");
+  expect(script).not.toContain("{token}");
+});
+
+test("import URL placeholder is braced so the shell does not swallow the suffix", () => {
+  const s = registrationScript({ command: "kubectl apply -f https://r/v3/import/{token}_c-2.yaml", token: { namespace: "c-2", name: "t", key: "token" } }, false);
+  expect(s.split("\n")[1]).toBe("kubectl apply -f https://r/v3/import/${TOKEN}_c-2.yaml");
 });

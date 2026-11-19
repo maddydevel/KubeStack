@@ -1,7 +1,7 @@
 // Copyright 2026 The KubeStack Authors. All rights reserved.
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, type Cluster, type Me } from "./api";
+import { api, ApiError, type Cluster, type Me, type Operation, type Registration } from "./api";
 
 function ErrorBox({ error }: { error: unknown }) {
   if (!error) return null;
@@ -54,6 +54,47 @@ function CreateForm({ versions }: { versions: string[] }) {
   );
 }
 
+function ImportForm() {
+  const [name, setName] = useState("");
+  const done = useInvalidate();
+  const m = useMutation({ mutationFn: () => api.importCluster(name), onSuccess: () => { setName(""); done(); } });
+  return (
+    <form className="flex flex-wrap items-end gap-3" onSubmit={(e) => { e.preventDefault(); m.mutate(); }}>
+      <label className="text-sm">
+        <span className="block font-medium">Existing cluster name</span>
+        <input required pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?" maxLength={63} value={name} onChange={(e) => setName(e.target.value)}
+          className="mt-1 rounded border border-slate-300 px-2 py-1.5" />
+      </label>
+      <button disabled={m.isPending} className={`${btn} bg-slate-700 text-white`}>Import cluster</button>
+      <div className="w-full"><ErrorBox error={m.error} /></div>
+    </form>
+  );
+}
+
+/** Shell snippet: the operator reads the token with their own kubectl credentials; KubeStack never sees it. */
+export function registrationScript(r: Registration, provisioned: boolean): string {
+  const read = `TOKEN=$(kubectl -n ${r.token.namespace} get secret ${r.token.name} -o jsonpath='{.data.${r.token.key}}' | base64 -d)`;
+  const cmd = r.command.split("{token}").join("${TOKEN}") + (provisioned ? " --etcd --controlplane --worker" : "");
+  return `${read}\n${cmd}`;
+}
+
+function RegisterDialog({ c, onClose }: { c: Cluster; onClose: () => void }) {
+  const q = useQuery({ queryKey: ["registration", c.id], queryFn: () => api.registration(c.id) });
+  const provisioned = c.tier === "provisioned";
+  return (
+    <Dialog title={provisioned ? `Add nodes to ${c.name}` : `Connect ${c.name}`} onClose={onClose}>
+      <p className="text-sm">
+        {provisioned
+          ? "Run on each new Linux node (as root). Drop the role flags a node should not have."
+          : "Run against the existing cluster with a kubeconfig that can create cluster-scoped resources."}
+        {" "}The first line reads the join token from Rancher's local cluster with your own credentials.
+      </p>
+      <ErrorBox error={q.error} />
+      {q.data && <pre aria-label="Registration command" className="overflow-x-auto whitespace-pre-wrap break-all rounded bg-slate-900 p-3 text-xs text-slate-100">{registrationScript(q.data, provisioned)}</pre>}
+    </Dialog>
+  );
+}
+
 function UpgradeDialog({ c, versions, onClose }: { c: Cluster; versions: string[]; onClose: () => void }) {
   const [target, setTarget] = useState(versions.find((v) => v > c.kubernetesVersion) ?? versions.at(-1)!);
   const [confirmed, setConfirmed] = useState(false);
@@ -79,12 +120,16 @@ function DeleteDialog({ c, onClose }: { c: Cluster; onClose: () => void }) {
   const [typed, setTyped] = useState("");
   const done = useInvalidate();
   const m = useMutation({ mutationFn: () => api.remove(c.id), onSuccess: () => { done(); onClose(); } });
+  const attached = c.tier === "attached";
   return (
-    <Dialog title={`Delete ${c.name}`} onClose={onClose}>
-      <p className="text-sm">This destroys the cluster and its workloads. Type <code>{c.name}</code> to confirm.</p>
+    <Dialog title={`${attached ? "Disconnect" : "Delete"} ${c.name}`} onClose={onClose}>
+      <p className="text-sm">
+        {attached ? "This removes the cluster from KubeStack; the cluster and its workloads keep running." : "This destroys the cluster and its workloads."}
+        {" "}Type <code>{c.name}</code> to confirm.
+      </p>
       <input aria-label="Cluster name confirmation" value={typed} onChange={(e) => setTyped(e.target.value)} className="rounded border border-slate-300 px-2 py-1.5" />
       <ErrorBox error={m.error} />
-      <button disabled={typed !== c.name || m.isPending} onClick={() => m.mutate()} className={`${btn} bg-red-600 text-white`}>Delete cluster</button>
+      <button disabled={typed !== c.name || m.isPending} onClick={() => m.mutate()} className={`${btn} bg-red-600 text-white`}>{attached ? "Disconnect cluster" : "Delete cluster"}</button>
     </Dialog>
   );
 }
@@ -103,7 +148,7 @@ function Dialog({ title, onClose, children }: { title: string; onClose: () => vo
   );
 }
 
-function OpButton({ c, op, label, onClick, cls }: { c: Cluster; op: "upgrade" | "delete"; label: string; onClick: () => void; cls: string }) {
+function OpButton({ c, op, label, onClick, cls }: { c: Cluster; op: Operation; label: string; onClick: () => void; cls: string }) {
   const p = c.operations[op];
   return (
     <button disabled={!p.allowed} title={p.reason} aria-description={p.reason} onClick={onClick} className={`${btn} ${cls}`}>{label}</button>
@@ -129,7 +174,7 @@ function Console({ me }: { me: Me }) {
   const clusters = useQuery({ queryKey: ["clusters"], queryFn: api.clusters });
   const versions = useQuery({ queryKey: ["versions"], queryFn: api.versions, staleTime: Infinity });
   const audit = useQuery({ queryKey: ["audit"], queryFn: api.audit });
-  const [dialog, setDialog] = useState<{ kind: "upgrade" | "delete"; c: Cluster } | null>(null);
+  const [dialog, setDialog] = useState<{ kind: Operation; c: Cluster } | null>(null);
   const vs = versions.data ?? [];
 
   return (
@@ -160,7 +205,8 @@ function Console({ me }: { me: Me }) {
                   <td className="px-3 py-2">{c.ready ? "Ready" : "Not ready"}</td>
                   <td className="flex justify-end gap-2 px-3 py-2">
                     <OpButton c={c} op="upgrade" label="Upgrade" cls="bg-amber-100 text-amber-900" onClick={() => setDialog({ kind: "upgrade", c })} />
-                    <OpButton c={c} op="delete" label="Delete" cls="bg-red-100 text-red-900" onClick={() => setDialog({ kind: "delete", c })} />
+                    <OpButton c={c} op="register" label={c.tier === "attached" ? "Connect" : "Add nodes"} cls="bg-slate-100" onClick={() => setDialog({ kind: "register", c })} />
+                    <OpButton c={c} op="delete" label={c.tier === "attached" ? "Disconnect" : "Delete"} cls="bg-red-100 text-red-900" onClick={() => setDialog({ kind: "delete", c })} />
                   </td>
                 </tr>
               ))}
@@ -169,6 +215,7 @@ function Console({ me }: { me: Me }) {
           </table>
         </div>
         {me.admin && vs.length > 0 && <CreateForm versions={vs} />}
+        {me.admin && <ImportForm />}
       </section>
 
       <section className="flex flex-col gap-3">
@@ -187,6 +234,7 @@ function Console({ me }: { me: Me }) {
       </section>
 
       {dialog?.kind === "upgrade" && <UpgradeDialog c={dialog.c} versions={vs} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "register" && <RegisterDialog c={dialog.c} onClose={() => setDialog(null)} />}
       {dialog?.kind === "delete" && <DeleteDialog c={dialog.c} onClose={() => setDialog(null)} />}
     </main>
   );

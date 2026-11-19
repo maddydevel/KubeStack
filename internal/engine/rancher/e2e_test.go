@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
 
 	"kubestack.dev/kubestack/internal/domain"
@@ -78,6 +79,13 @@ func TestE2E(t *testing.T) {
 	}
 	version = catalog[len(catalog)-1]
 
+	// Registration commands need Rancher's server URL; a fresh install has none.
+	const serverURL = "https://engine.kubestack-e2e.test"
+	if _, err := e.c.Resource(schema.GroupVersionResource{Group: "management.cattle.io", Version: "v3", Resource: "settings"}).
+		Patch(ctx, "server-url", types.MergePatchType, []byte(`{"value":"`+serverURL+`"}`), metav1.PatchOptions{}); err != nil {
+		t.Fatalf("set server-url: %v", err)
+	}
+
 	name := fmt.Sprintf("ks-e2e-%d", time.Now().Unix()%100000)
 	c, err := e.CreateCluster(ctx, domain.CreateRequest{Name: name, KubernetesVersion: version})
 	if err != nil {
@@ -103,6 +111,17 @@ func TestE2E(t *testing.T) {
 		_, err := e.c.Resource(capiGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 		return err == nil, err
 	})
+
+	// Node registration: command with placeholder, token in a Secret we only reference.
+	var reg domain.Registration
+	eventually(t, 2*time.Minute, "registration command", func() (bool, error) {
+		reg, err = e.Registration(ctx, name)
+		return err == nil, err
+	})
+	if !strings.Contains(reg.Command, "--server "+serverURL) || !strings.Contains(reg.Command, "--token "+domain.TokenPlaceholder) {
+		t.Errorf("node command not in the expected form: %q", reg.Command)
+	}
+	checkTokenSecret(t, e, reg.Token)
 
 	got, err := e.GetCluster(ctx, name)
 	if err != nil || got.Tier != domain.TierProvisioned || got.KubernetesVersion != version {
@@ -135,11 +154,49 @@ func TestE2E(t *testing.T) {
 		t.Fatalf("upgrade patch rejected: %v", err)
 	}
 
+	// Import an existing cluster: tier attached, manifest command with placeholder, disconnect works.
+	imp := name + "-imp"
+	ic, err := e.ImportCluster(ctx, domain.ImportRequest{Name: imp})
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	t.Cleanup(func() { e.DeleteCluster(context.Background(), imp) })
+	if ic.Tier != domain.TierAttached || ic.UpgradeOwner != domain.OwnerNone {
+		t.Fatalf("imported cluster classified as %+v", ic)
+	}
+	eventually(t, 2*time.Minute, "import command", func() (bool, error) {
+		reg, err = e.Registration(ctx, imp)
+		return err == nil, err
+	})
+	if !strings.HasPrefix(reg.Command, "kubectl apply -f "+serverURL+"/v3/import/"+domain.TokenPlaceholder+"_") {
+		t.Errorf("import command not in the expected form: %q", reg.Command)
+	}
+	checkTokenSecret(t, e, reg.Token)
+	if err := e.DeleteCluster(ctx, imp); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := e.DeleteCluster(ctx, name); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, 3*time.Minute, "cluster deletion", func() (bool, error) {
-		_, err := e.GetCluster(ctx, name)
-		return errors.Is(err, engine.ErrNotFound), err
-	})
+	for _, n := range []string{name, imp} {
+		eventually(t, 3*time.Minute, "deletion of "+n, func() (bool, error) {
+			_, err := e.GetCluster(ctx, n)
+			return errors.Is(err, engine.ErrNotFound), err
+		})
+	}
+}
+
+// checkTokenSecret verifies the reference resolves to a non-empty token (the test runs as admin;
+// the product API has no Secret access). The value is never printed.
+func checkTokenSecret(t *testing.T, e *Engine, ref domain.SecretRef) {
+	t.Helper()
+	sec, err := e.c.Resource(schema.GroupVersionResource{Version: "v1", Resource: "secrets"}).Namespace(ref.Namespace).
+		Get(context.Background(), ref.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("token secret %s/%s: %v", ref.Namespace, ref.Name, err)
+	}
+	if v, _, _ := unstructured.NestedString(sec.Object, "data", ref.Key); v == "" {
+		t.Fatalf("token secret %s/%s has no %q", ref.Namespace, ref.Name, ref.Key)
+	}
 }

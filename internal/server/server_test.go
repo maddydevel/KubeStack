@@ -72,7 +72,8 @@ func TestCapabilityRefusals(t *testing.T) {
 	h, _, st := setup("admins")
 	for _, tc := range []struct{ method, path, body string }{
 		{"POST", "/api/v1/clusters/analytics-eks/upgrade", `{"kubernetesVersion":"v1.36.5+rke2r1"}`},
-		{"DELETE", "/api/v1/clusters/legacy-k3s", ""},
+		{"DELETE", "/api/v1/clusters/analytics-eks", ""},
+		{"POST", "/api/v1/clusters/legacy-k3s/upgrade", `{"kubernetesVersion":"v1.36.5+rke2r1"}`},
 	} {
 		w := do(h, tc.method, tc.path, tc.body, "k")
 		var e apiError
@@ -129,5 +130,27 @@ func TestMe(t *testing.T) {
 	w := do(h, "GET", "/api/v1/me", "", "")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"admin":true`) || !strings.Contains(w.Body.String(), `"name":"alice"`) {
 		t.Fatalf("me: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestImportAndRegistration(t *testing.T) {
+	h, _, st := setup("admins")
+	if w := do(h, "POST", "/api/v1/clusters/import", `{"name":"brownfield"}`, ""); w.Code != 201 || !strings.Contains(w.Body.String(), `"tier":"attached"`) {
+		t.Fatalf("import: %d %s", w.Code, w.Body)
+	}
+	recs, _ := st.ListAudit(context.Background(), 10)
+	if len(recs) != 2 || recs[0].Action != "import" || recs[0].Result != audit.ResultSuccess {
+		t.Fatalf("import audit: %+v", recs)
+	}
+	w := do(h, "GET", "/api/v1/clusters/brownfield/registration", "", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "{token}") || !strings.Contains(w.Body.String(), `"key":"token"`) {
+		t.Fatalf("registration: %d %s", w.Code, w.Body)
+	}
+	if w := do(h, "GET", "/api/v1/clusters/analytics-eks/registration", "", ""); w.Code != http.StatusConflict {
+		t.Fatalf("hosted registration must be refused: %d", w.Code)
+	}
+	ro, _, _ := setup("viewers")
+	if w := do(ro, "GET", "/api/v1/clusters/prod-eu/registration", "", ""); w.Code != http.StatusForbidden {
+		t.Fatalf("non-admin registration: %d", w.Code)
 	}
 }
