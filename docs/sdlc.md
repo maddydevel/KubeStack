@@ -126,7 +126,8 @@ portal with an OIDC-aware proxy that forwards `Authorization: Bearer <id_token>`
 
 ## 7. Known gaps (backlog)
 - Direct access: IdP CA distribution to nodes (`oidc-ca-file`); a real kubectl login is not covered by e2e (no nodes).
-- KubeStack-owned upgrades via System Upgrade Controller; `kubestack-controller` + CRDs.
+- Upgrading imported clusters needs etcd snapshot visibility for them (pre-flight can't be bypassed); refused with a reason.
+- `kubestack-controller` + CRDs: deferred by the product owner until there is a GitOps user (2026-11-18).
 - SBOM covers the Go binary and base image; portal npm packages are listed in `compliance/THIRD-PARTY.md`
   (bundled JS is not detected by syft).
 
@@ -141,6 +142,17 @@ portal with an OIDC-aware proxy that forwards `Authorization: Bearer <id_token>`
 | Integration | `make test-integration` (PostgreSQL 17) | pass — incl. 10 concurrent idempotency claims → 1 winner |
 | Packaging | `make helm-lint`, `helm template`, `make image` | pass — 14 MB distroless image, runs `--read-only` as `nonroot` |
 | E2E | `make e2e` (community Rancher **v2.15.3**, air-gapped) | pass — create/link/list/snapshot/nodes/upgrade/delete |
+
+### v0.2 increment — 2026-11-18 (PRs #8–#13, each green in CI: verify + e2e)
+| PR | Scope | Local verification |
+|----|-------|--------------------|
+| #8 | Portal login (F8) | unit (fake IdP), portal |
+| #9 | Node registration, import/disconnect (F9, F10) | unit, portal, e2e: commands + token Secret ref, import |
+| #10 | etcd snapshot/restore, node removal (F11, F12) | unit, portal, e2e: webhook accepts generation patches |
+| #11 | SBOM, cosign release, air-gap bundle, golangci-lint/eslint, dev-up | bundle → mirror.sh → local registry; dev-up smoke |
+| #12 | Direct access with own OIDC identity (F13) | unit, portal, e2e: webhook accepts apiserver OIDC args |
+| #13 | Imported RKE2/K3s upgrade owner (R5) | unit, e2e: setting exists |
+Not exercised anywhere: real nodes (joining, draining, snapshot execution, kubectl OIDC login), `release.yml`.
 
 ### Findings fixed because of e2e against real Rancher
 1. **Stale release catalog**: Rancher v2.15.3 supports RKE2 v1.34–v1.36 (default v1.36.5); the bundled

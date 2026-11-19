@@ -61,6 +61,11 @@ func (c Cluster) Allowed(op Operation) (bool, string) {
 	if op == OpDelete && c.Tier == TierAttached {
 		return true, ""
 	}
+	if op == OpUpgrade && c.Tier == TierAttached && c.UpgradeOwner == OwnerRancher {
+		// The engine could upgrade it, but the mandatory pre-flight needs an etcd snapshot, and the
+		// engine records snapshots only for clusters it provisioned.
+		return false, "the lifecycle engine manages this imported cluster's version, but upgrade pre-flight requires an etcd snapshot, which is not visible for imported clusters"
+	}
 	if op == OpAccess && c.Tier != TierProvisioned {
 		return false, "KubeStack configures identity only on clusters it provisions; use the cluster's own access setup"
 	}
