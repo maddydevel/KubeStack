@@ -87,6 +87,13 @@ func run() error {
 		groupsClaim := env("KUBESTACK_OIDC_GROUPS_CLAIM", "groups")
 		// Clusters trust the same IdP; a CLI needs a public client, so it may differ from the portal's.
 		clusterOIDC = &domain.ClusterOIDC{IssuerURL: issuer, ClientID: env("KUBESTACK_OIDC_CLI_CLIENT_ID", client), GroupsClaim: groupsClaim, AdminGroup: adminGroup}
+		if f := os.Getenv("KUBESTACK_OIDC_CA_FILE"); f != "" {
+			ca, err := os.ReadFile(f) // #nosec G304 -- operator-supplied path
+			if err != nil {
+				return err
+			}
+			clusterOIDC.CAPEM = ca
+		}
 		o, err := auth.NewOIDC(ctx, issuer, client, groupsClaim)
 		if err != nil {
 			return err

@@ -26,6 +26,9 @@ spec:
             - {name: KUBESTACK_OIDC_ISSUER, value: {{ .Values.oidc.issuer | quote }}}
             - {name: KUBESTACK_OIDC_CLIENT_ID, value: {{ .Values.oidc.clientID | quote }}}
             - {name: KUBESTACK_OIDC_GROUPS_CLAIM, value: {{ .Values.oidc.groupsClaim | quote }}}
+            {{- if .Values.oidc.caConfigMap }}
+            - {name: KUBESTACK_OIDC_CA_FILE, value: /etc/kubestack/oidc/ca.crt}
+            {{- end }}
             {{- with .Values.oidc.cliClientID }}
             - {name: KUBESTACK_OIDC_CLI_CLIENT_ID, value: {{ . | quote }}}
             {{- end }}
@@ -45,12 +48,22 @@ spec:
             {{- end }}
           readinessProbe: {httpGet: {path: /healthz, port: http}}
           livenessProbe: {httpGet: {path: /healthz, port: http}}
-          {{- if .Values.rancherKubeconfigSecret }}
-          volumeMounts: [{name: rancher, mountPath: /etc/kubestack/rancher, readOnly: true}]
+          volumeMounts:
+            {{- if .Values.rancherKubeconfigSecret }}
+            - {name: rancher, mountPath: /etc/kubestack/rancher, readOnly: true}
+            {{- end }}
+            {{- if .Values.oidc.caConfigMap }}
+            - {name: oidc-ca, mountPath: /etc/kubestack/oidc, readOnly: true}
+            {{- end }}
       volumes:
+        {{- if .Values.rancherKubeconfigSecret }}
         - name: rancher
           secret: {secretName: {{ .Values.rancherKubeconfigSecret }}}
-          {{- end }}
+        {{- end }}
+        {{- if .Values.oidc.caConfigMap }}
+        - name: oidc-ca
+          configMap: {name: {{ .Values.oidc.caConfigMap }}}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service

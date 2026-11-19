@@ -175,11 +175,23 @@ func (e *Engine) CreateCluster(ctx context.Context, r domain.CreateRequest) (dom
 	if o := r.OIDC; o != nil {
 		// kube-apiserver OIDC flags (https://kubernetes.io/docs/reference/access-authn-authz/authentication/#openid-connect-tokens);
 		// RKE2 passes kube-apiserver-arg through on server nodes.
-		global["kube-apiserver-arg"] = []any{
+		args := []any{
 			"oidc-issuer-url=" + o.IssuerURL, "oidc-client-id=" + o.ClientID,
 			"oidc-username-claim=email", "oidc-groups-claim=" + o.GroupsClaim,
 			"oidc-username-prefix=" + domain.OIDCPrefix, "oidc-groups-prefix=" + domain.OIDCPrefix,
 		}
+		if len(o.CAPEM) > 0 {
+			// machineSelectorFiles writes the CA onto control-plane nodes; RKE2's kube-apiserver-extra-mount
+			// makes the directory visible inside the static pod (https://docs.rke2.io/reference/server_config).
+			args = append(args, "oidc-ca-file="+oidcCAPath)
+			global["kube-apiserver-extra-mount"] = []any{oidcCADir + ":" + oidcCADir + ":ro"}
+			rke["machineSelectorFiles"] = []any{map[string]any{
+				"machineLabelSelector": map[string]any{"matchLabels": map[string]any{roleLabels["controlplane"]: "true"}},
+				"fileSources": []any{map[string]any{"configMap": map[string]any{
+					"name": oidcCAConfigMap(r.Name), "items": []any{map[string]any{"key": "ca.crt", "path": oidcCAPath}}}}},
+			}}
+		}
+		global["kube-apiserver-arg"] = args
 		// Applied by Rancher once the cluster is up: the admin group gets cluster-admin, as itself.
 		rke["additionalManifest"] = fmt.Sprintf(`apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -200,7 +212,39 @@ subjects:
 	if err != nil {
 		return domain.Cluster{}, mapErr(err)
 	}
+	if o := r.OIDC; o != nil && len(o.CAPEM) > 0 {
+		if err := e.createOIDCCA(ctx, created, o.CAPEM); err != nil {
+			return domain.Cluster{}, fmt.Errorf("cluster created but its IdP CA could not be stored: %w", err)
+		}
+	}
 	return toDomain(created, nil, false), nil
+}
+
+const (
+	oidcCADir  = "/etc/kubestack"
+	oidcCAPath = oidcCADir + "/oidc-ca.crt"
+)
+
+func oidcCAConfigMap(cluster string) string { return "kubestack-oidc-ca-" + cluster }
+
+var configMapGVR = schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}
+
+// createOIDCCA stores the IdP CA (public data, so a ConfigMap) owned by the cluster, so it is deleted
+// with it. Rancher only copies files from objects whose rke.cattle.io/object-authorized-for-clusters
+// annotation names the cluster (Rancher v2.15.3 pkg/capr/planner/config.go clusterObjectAuthorized).
+func (e *Engine) createOIDCCA(ctx context.Context, cluster *unstructured.Unstructured, ca []byte) error {
+	cm := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1", "kind": "ConfigMap",
+		"metadata": map[string]any{
+			"name": oidcCAConfigMap(cluster.GetName()), "namespace": namespace,
+			"annotations": map[string]any{"rke.cattle.io/object-authorized-for-clusters": cluster.GetName()},
+			"ownerReferences": []any{map[string]any{
+				"apiVersion": "provisioning.cattle.io/v1", "kind": "Cluster", "name": cluster.GetName(), "uid": string(cluster.GetUID())}},
+		},
+		"data": map[string]any{"ca.crt": string(ca)},
+	}}
+	_, err := e.c.Resource(configMapGVR).Namespace(namespace).Create(ctx, cm, metav1.CreateOptions{})
+	return err
 }
 
 // ImportCluster creates a provisioning cluster without rkeConfig: Rancher then issues an import
