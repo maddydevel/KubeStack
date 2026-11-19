@@ -41,7 +41,9 @@ if [[ $JOIN == local ]]; then
   TOKEN=$(kubectl -n "$ns" get secret "$secret" -o "jsonpath={.data.$key}" | base64 -d)
   cmd=$(jq -r .command <<<"$BODY")
   echo ">>> joining this host as an etcd+controlplane+worker node"
-  bash -c "${cmd//\{token\}/$TOKEN} --etcd --controlplane --worker" >/dev/null 2>&1 || { echo "FAIL: node join script"; exit 1; }
+  # The output never shows the token: it is replaced before it reaches the log.
+  bash -o pipefail -c "${cmd//\{token\}/$TOKEN} --etcd --controlplane --worker" 2>&1 | sed "s/$TOKEN/<token>/g" > "${JOIN_LOG:-/dev/null}" ||
+    { echo "FAIL: node join script (log: ${JOIN_LOG:-unset})"; exit 1; }
   unset TOKEN
 else
   echo; echo ">>> Join $NODES nodes with the portal's 'Add nodes' script (at least 3 etcd+controlplane, 1 worker-only), then press Enter."; read -r

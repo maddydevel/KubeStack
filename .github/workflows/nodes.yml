@@ -21,6 +21,10 @@ jobs:
           make dev-up
           ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' kubestack-e2e-rancher)
           kubectl --kubeconfig bin/rancher-dev.kubeconfig patch settings.management.cattle.io server-url --type merge -p "{\"value\":\"https://$ip\"}"
+          # The node install script fetches over TLS; trust Rancher's self-signed CA like an operator would.
+          curl -sfk "https://$ip/cacerts" | sudo tee /usr/local/share/ca-certificates/kubestack-e2e-rancher.crt >/dev/null
+          sudo update-ca-certificates >/dev/null
+          curl -sf "https://$ip/ping"
       - name: KubeStack API (real engine, dev auth, memory store)
         run: |
           go build -o bin/kubestack-api ./cmd/kubestack-api
@@ -35,6 +39,7 @@ jobs:
           NODES: "1"
           JOIN: local
           ACCESS: skip
+          JOIN_LOG: bin/join.log
         run: hack/acceptance.sh ci-node v1.35.9+rke2r1 v1.36.5+rke2r1
       - name: Diagnostics
         if: failure()
@@ -43,5 +48,6 @@ jobs:
           kubectl get clusters.provisioning.cattle.io,machines.cluster.x-k8s.io,etcdsnapshots.rke.cattle.io -A || true
           kubectl -n fleet-default get clusters.provisioning.cattle.io -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{range .status.conditions[*]}  {.type}={.status} {.message}{"\n"}{end}{end}' || true
           tail -50 bin/api.log || true
+          tail -40 bin/join.log || true
           sudo journalctl -u rancher-system-agent --no-pager | tail -40 || true
           sudo journalctl -u rke2-server --no-pager | tail -40 || true
