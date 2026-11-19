@@ -10,11 +10,13 @@ import (
 	"testing"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	clienttesting "k8s.io/client-go/testing"
 
 	"kubestack.dev/kubestack/internal/domain"
 	"kubestack.dev/kubestack/internal/engine"
@@ -273,5 +275,42 @@ func TestCreateWithOIDCCA(t *testing.T) {
 	}
 	if d, _, _ := unstructured.NestedString(cm.Object, "data", "ca.crt"); d != string(ca) {
 		t.Errorf("ca data: %q", d)
+	}
+}
+
+func TestBumpGenerationConflicts(t *testing.T) {
+	ctx := context.Background()
+	e := newEngine(u("provisioning.cattle.io/v1", "Cluster", namespace, "rke", nil, map[string]any{"spec": map[string]any{"rkeConfig": map[string]any{}}}))
+	fc := e.c.(*dynamicfake.FakeDynamicClient)
+	conflict := apierrors.NewConflict(schema.GroupResource{Group: "provisioning.cattle.io", Resource: "clusters"}, "rke", errors.New("modified"))
+
+	// An unrelated concurrent write: one conflict, then the patch succeeds.
+	n := 0
+	fc.PrependReactor("patch", "clusters", func(clienttesting.Action) (bool, runtime.Object, error) {
+		n++
+		return n == 1, nil, conflict
+	})
+	if err := e.CreateSnapshot(ctx, "rke"); err != nil || n != 2 {
+		t.Fatalf("unrelated conflict must be retried: %v (patches %d)", err, n)
+	}
+
+	// Someone else bumped the same generation between our read and write: refuse, don't double it.
+	e = newEngine(u("provisioning.cattle.io/v1", "Cluster", namespace, "rke", nil, map[string]any{"spec": map[string]any{"rkeConfig": map[string]any{}}}))
+	fc = e.c.(*dynamicfake.FakeDynamicClient)
+	other := false
+	fc.PrependReactor("patch", "clusters", func(clienttesting.Action) (bool, runtime.Object, error) {
+		if other {
+			return false, nil, nil
+		}
+		other = true
+		// The fake client holds its lock while reactors run, so go through the tracker directly.
+		obj, _ := fc.Tracker().Get(provGVR, namespace, "rke")
+		p := obj.(*unstructured.Unstructured)
+		_ = unstructured.SetNestedField(p.Object, int64(1), "spec", "rkeConfig", "etcdSnapshotCreate", "generation")
+		_ = fc.Tracker().Update(provGVR, p, namespace)
+		return true, nil, conflict
+	})
+	if err := e.CreateSnapshot(ctx, "rke"); !errors.Is(err, engine.ErrConflict) {
+		t.Fatalf("concurrent same-operation request must be refused: %v", err)
 	}
 }

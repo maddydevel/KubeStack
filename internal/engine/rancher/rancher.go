@@ -330,26 +330,39 @@ func (e *Engine) Snapshots(ctx context.Context, id string) ([]domain.Snapshot, e
 }
 
 // bumpGeneration requests a one-shot rkeConfig operation (etcdSnapshotCreate/etcdSnapshotRestore):
-// Rancher acts when the generation changes. resourceVersion makes concurrent requests conflict, not merge.
+// Rancher acts when the generation changes. The patch carries resourceVersion. A conflict caused by
+// an unrelated update (Rancher's controllers write the object constantly) is retried; one where this
+// operation's generation moved means someone else requested it, and is refused rather than doubled.
 func (e *Engine) bumpGeneration(ctx context.Context, id, field string, extra map[string]any) error {
-	p, err := e.prov().Get(ctx, id, metav1.GetOptions{})
-	if err != nil {
-		return mapErr(err)
+	first := int64(-1)
+	for attempt := 0; ; attempt++ {
+		p, err := e.prov().Get(ctx, id, metav1.GetOptions{})
+		if err != nil {
+			return mapErr(err)
+		}
+		gen, _, _ := unstructured.NestedInt64(p.Object, "spec", "rkeConfig", field, "generation")
+		if first < 0 {
+			first = gen
+		} else if gen != first {
+			return fmt.Errorf("%w: another %s request was made concurrently", engine.ErrConflict, field)
+		}
+		op := map[string]any{"generation": gen + 1}
+		for k, v := range extra {
+			op[k] = v
+		}
+		patch, _ := json.Marshal(map[string]any{
+			"metadata": map[string]any{"resourceVersion": p.GetResourceVersion()},
+			"spec":     map[string]any{"rkeConfig": map[string]any{field: op}},
+		})
+		_, err = e.prov().Patch(ctx, id, types.MergePatchType, patch, metav1.PatchOptions{})
+		if !apierrors.IsConflict(err) {
+			return mapErr(err)
+		}
+		if attempt == 4 {
+			return fmt.Errorf("%w: cluster keeps changing, retry", engine.ErrConflict)
+		}
+		time.Sleep(time.Duration(attempt+1) * 200 * time.Millisecond)
 	}
-	gen, _, _ := unstructured.NestedInt64(p.Object, "spec", "rkeConfig", field, "generation")
-	op := map[string]any{"generation": gen + 1}
-	for k, v := range extra {
-		op[k] = v
-	}
-	patch, _ := json.Marshal(map[string]any{
-		"metadata": map[string]any{"resourceVersion": p.GetResourceVersion()},
-		"spec":     map[string]any{"rkeConfig": map[string]any{field: op}},
-	})
-	_, err = e.prov().Patch(ctx, id, types.MergePatchType, patch, metav1.PatchOptions{})
-	if apierrors.IsConflict(err) {
-		return fmt.Errorf("%w: cluster changed concurrently, retry", engine.ErrConflict)
-	}
-	return mapErr(err)
 }
 
 func (e *Engine) CreateSnapshot(ctx context.Context, id string) error {
