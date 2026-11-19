@@ -15,6 +15,7 @@ Rules referenced as **R#** are the numbered rules in `CLAUDE.md`.
 | F5 | Delete a provisioned cluster with explicit confirmation |
 | F6 | Show an audit trail of every lifecycle operation (R16) |
 | F7 | Show *why* an operation is unavailable, using the server's reason (R6) |
+| F8 | Portal sign-in/sign-out via the organisation's OIDC provider |
 
 ### Non-functional
 | ID | Requirement |
@@ -55,6 +56,7 @@ Portal (React/TS) ──/api/v1──▶ server ──▶ domain.Allowed / upgra
 | N2 | `upgrade/releases.json` embedded; system fonts | review checklist |
 | N3 | errors don't echo tokens/DSN | review checklist |
 | N4 | `auth.OIDC`, `server.wrap` | `TestCreateAndRBAC` (403 for non-admin) |
+| F8 | `auth.Login` (code flow + PKCE + nonce, cookie = ID token), CSRF header, portal sign-in | `auth: TestLoginFlow` (fake IdP: forged state, tampered token, CSRF), `TestMe`, `App.test: signed-out…`, `…CSRF header` |
 | N5 | `server.wrap` + `store.ClaimIdempotency` | `TestUpgradeFlow` (replay), `store_test` (10 concurrent claims → 1 winner) |
 | N6 | `server.lifecycle` | `TestUpgradeFlow` (attempt + success records) |
 | N7 | `hack/license-check.sh` | `make license-check` |
@@ -87,7 +89,9 @@ helm install kubestack deploy/helm/kubestack -n kubestack \
   --set image.registry=<mirror> --set databaseSecret=kubestack-db \
   --set oidc.issuer=<issuer> --set oidc.clientID=<client> --set adminGroup=<group>
 ```
-Put an OIDC-aware proxy in front that forwards `Authorization: Bearer <id_token>`.
+Portal sign-in: register `https://<host>/auth/callback` with the IdP and set `oidc.redirectURL`
+(plus `oidc.clientSecretSecret` for a confidential client). Alternatively leave it empty and front the
+portal with an OIDC-aware proxy that forwards `Authorization: Bearer <id_token>`. See ADR 0002.
 
 **Runbook**
 | Symptom | Meaning / action |
@@ -104,7 +108,7 @@ Put an OIDC-aware proxy in front that forwards `Authorization: Bearer <id_token>
 - Node registration for new clusters (registration command embeds a bootstrap token, R15 — needs design).
 - Per-user downstream access via OIDC → impersonation (R16).
 - KubeStack-owned upgrades via System Upgrade Controller; `kubestack-controller` + CRDs.
-- Portal login flow (relies on fronting OIDC proxy), SBOM/cosign, air-gap bundle, golangci-lint/eslint.
+- SBOM/cosign, air-gap bundle, golangci-lint/eslint.
 
 ## 8. Verification record — 2026-11-17
 | Stage | Command | Result |

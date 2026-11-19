@@ -73,6 +73,7 @@ func run() error {
 	}
 
 	var a auth.Authenticator
+	var login *auth.Login
 	if os.Getenv("KUBESTACK_DEV_AUTH") == "true" {
 		slog.Warn("DEV AUTH ENABLED: every request is an admin")
 		a = auth.Dev{Group: adminGroup}
@@ -86,9 +87,16 @@ func run() error {
 			return err
 		}
 		a = o
+		// Optional built-in portal login; without it, front the portal with an OIDC-aware proxy.
+		if redirect := os.Getenv("KUBESTACK_OIDC_REDIRECT_URL"); redirect != "" {
+			login = o.NewLogin(os.Getenv("KUBESTACK_OIDC_CLIENT_SECRET"), redirect)
+		}
 	}
 
 	s := &server.Server{Engine: eng, Store: st, Auth: a, AdminGroup: adminGroup, Now: time.Now}
+	if login != nil {
+		s.Login = login
+	}
 	srv := &http.Server{Addr: env("KUBESTACK_LISTEN", ":8080"), Handler: s.Routes(os.Getenv("KUBESTACK_PORTAL_DIR")), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()

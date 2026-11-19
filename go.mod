@@ -6,7 +6,9 @@ toolchain go1.23.6
 
 require (
 	github.com/coreos/go-oidc/v3 v3.11.0
+	github.com/go-jose/go-jose/v4 v4.0.2
 	github.com/jackc/pgx/v5 v5.7.2
+	golang.org/x/oauth2 v0.25.0
 	k8s.io/apimachinery v0.32.3
 	k8s.io/client-go v0.32.3
 )
@@ -14,7 +16,6 @@ require (
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.0.2 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
@@ -38,7 +39,6 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/crypto v0.31.0 // indirect
 	golang.org/x/net v0.30.0 // indirect
-	golang.org/x/oauth2 v0.25.0 // indirect
 	golang.org/x/sync v0.10.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/term v0.27.0 // indirect

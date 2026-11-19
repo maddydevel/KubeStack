@@ -23,14 +23,20 @@ export interface AuditRecord {
   error?: string;
 }
 
+export interface Me {
+  name: string;
+  admin: boolean;
+}
+
 export class ApiError extends Error {
-  constructor(message: string, public details: string[] = []) {
+  constructor(message: string, public details: string[] = [], public status = 0) {
     super(message);
   }
 }
 
 async function call<T>(method: string, path: string, body?: unknown, idempotent = false): Promise<T> {
-  const headers: Record<string, string> = {};
+  // Required by the server for cookie-authenticated mutations (CSRF protection).
+  const headers: Record<string, string> = { "X-KubeStack-Request": "1" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (idempotent) headers["Idempotency-Key"] = crypto.randomUUID();
   const res = await fetch(`/api/v1${path}`, {
@@ -40,11 +46,13 @@ async function call<T>(method: string, path: string, body?: unknown, idempotent 
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(data.error ?? res.statusText, data.details ?? []);
+  if (!res.ok) throw new ApiError(data.error ?? res.statusText, data.details ?? [], res.status);
   return data as T;
 }
 
 export const api = {
+  me: () => call<Me>("GET", "/me"),
+  logout: () => fetch("/auth/logout", { method: "POST", credentials: "same-origin" }),
   clusters: () => call<Cluster[]>("GET", "/clusters"),
   versions: () => call<string[]>("GET", "/versions"),
   audit: () => call<AuditRecord[]>("GET", "/audit?limit=50"),

@@ -10,6 +10,9 @@ oidc:
   issuer: ""            # must be reachable on the private network
   clientID: ""
   groupsClaim: groups
+  # Built-in portal login (authorization code + PKCE). Leave empty to use an OIDC-aware proxy instead.
+  redirectURL: ""       # e.g. https://kubestack.example.internal/auth/callback
+  clientSecretSecret: "" # Secret with key CLIENT_SECRET; omit for a public client
 
 # Secret holding key DATABASE_URL (postgres://...). Required for a durable audit trail.
 databaseSecret: ""

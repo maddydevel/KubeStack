@@ -1,8 +1,13 @@
 openapi: 3.0.3
 info: {title: KubeStack API, version: v1}
 # Source of truth for the HTTP API. portal/src/api.ts mirrors these types.
-security: [{bearer: []}]
+# Either credential works. Cookie-authenticated non-GET requests must also send "X-KubeStack-Request: 1"
+# (CSRF). The cookie is set by the portal login flow: GET /auth/login -> IdP -> GET /auth/callback;
+# POST /auth/logout clears it. Those three endpoints exist only when KUBESTACK_OIDC_REDIRECT_URL is set.
+security: [{bearer: []}, {session: []}]
 paths:
+  /api/v1/me:
+    get: {summary: The signed-in user, responses: {"200": {description: user, content: {application/json: {schema: {type: object, properties: {name: {type: string}, admin: {type: boolean}}}}}}, "401": {$ref: "#/components/responses/Error"}}}
   /api/v1/versions:
     get: {summary: Release catalog, responses: {"200": {description: versions, content: {application/json: {schema: {type: array, items: {type: string}}}}}}}
   /api/v1/clusters:
@@ -42,6 +47,7 @@ paths:
 components:
   securitySchemes:
     bearer: {type: http, scheme: bearer, bearerFormat: OIDC ID token}
+    session: {type: apiKey, in: cookie, name: kubestack_session}
   parameters:
     id: {name: id, in: path, required: true, schema: {type: string}}
     idempotencyKey: {name: Idempotency-Key, in: header, required: true, schema: {type: string}}
