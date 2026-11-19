@@ -19,7 +19,7 @@ jobs:
       - name: Engine (community Rancher)
         run: |
           make dev-up
-          ip=$(docker inspect -f '{{.NetworkSettings.IPAddress}}' kubestack-e2e-rancher)
+          ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' kubestack-e2e-rancher)
           kubectl --kubeconfig bin/rancher-dev.kubeconfig patch settings.management.cattle.io server-url --type merge -p "{\"value\":\"https://$ip\"}"
       - name: KubeStack API (real engine, dev auth, memory store)
         run: |
