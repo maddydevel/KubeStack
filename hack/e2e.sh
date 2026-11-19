@@ -15,6 +15,7 @@ UP=${2:-}
 NAME=kubestack-e2e-rancher
 export GOTOOLCHAIN=local
 
+mkdir -p bin
 [[ -n $UP ]] || CGO_ENABLED=0 go test -c -tags e2e -o bin/rancher-e2e.test ./internal/engine/rancher/
 
 LIST=hack/e2e-images/$RANCHER.txt
