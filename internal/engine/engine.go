@@ -6,13 +6,12 @@ package engine
 import (
 	"context"
 	"errors"
-	"time"
 
 	"kubestack.dev/kubestack/internal/domain"
 )
 
 var (
-	ErrNotFound = errors.New("cluster not found")
+	ErrNotFound = errors.New("not found")
 	ErrConflict = errors.New("cluster already exists")
 	ErrNotReady = errors.New("not ready yet")
 )
@@ -26,7 +25,10 @@ type Engine interface {
 	Registration(ctx context.Context, id string) (domain.Registration, error)
 	UpgradeCluster(ctx context.Context, id, kubernetesVersion string) error
 	DeleteCluster(ctx context.Context, id string) error
-	// LatestSnapshot returns the newest successful etcd snapshot time, zero if none.
-	LatestSnapshot(ctx context.Context, id string) (time.Time, error)
-	NodeHealth(ctx context.Context, id string) (ready, total int, err error)
+	Snapshots(ctx context.Context, id string) ([]domain.Snapshot, error)
+	CreateSnapshot(ctx context.Context, id string) error
+	// RestoreSnapshot restores etcd only; the cluster's configuration and version are kept.
+	RestoreSnapshot(ctx context.Context, id, snapshot string) error
+	Nodes(ctx context.Context, id string) ([]domain.Node, error)
+	RemoveNode(ctx context.Context, id, node string) error
 }

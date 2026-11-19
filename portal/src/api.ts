@@ -1,7 +1,19 @@
 // Copyright 2026 The KubeStack Authors. All rights reserved.
 // Hand-written mirror of api/openapi.yaml. The browser only ever talks to the KubeStack API.
 
-export type Operation = "upgrade" | "delete" | "register";
+export type Operation = "upgrade" | "delete" | "register" | "snapshot" | "restore" | "removeNode";
+
+export interface Snapshot {
+  name: string;
+  createdAt: string;
+  successful: boolean;
+}
+
+export interface Node {
+  name: string;
+  ready: boolean;
+  roles: string[];
+}
 
 export interface Cluster {
   id: string;
@@ -65,6 +77,12 @@ export const api = {
   create: (name: string, kubernetesVersion: string) => call<Cluster>("POST", "/clusters", { name, kubernetesVersion }),
   importCluster: (name: string) => call<Cluster>("POST", "/clusters/import", { name }),
   registration: (id: string) => call<Registration>("GET", `/clusters/${encodeURIComponent(id)}/registration`),
+  snapshots: (id: string) => call<Snapshot[]>("GET", `/clusters/${encodeURIComponent(id)}/snapshots`),
+  takeSnapshot: (id: string) => call<unknown>("POST", `/clusters/${encodeURIComponent(id)}/snapshots`),
+  restore: (id: string, snapshot: string) => call<unknown>("POST", `/clusters/${encodeURIComponent(id)}/restore`, { snapshot }, true),
+  nodes: (id: string) => call<Node[]>("GET", `/clusters/${encodeURIComponent(id)}/nodes`),
+  removeNode: (id: string, node: string) =>
+    call<unknown>("DELETE", `/clusters/${encodeURIComponent(id)}/nodes/${encodeURIComponent(node)}`, undefined, true),
   upgrade: (id: string, kubernetesVersion: string) =>
     call<Cluster>("POST", `/clusters/${encodeURIComponent(id)}/upgrade`, { kubernetesVersion }, true),
   remove: (id: string) => call<unknown>("DELETE", `/clusters/${encodeURIComponent(id)}`, undefined, true),

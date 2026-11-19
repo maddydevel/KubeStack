@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -16,6 +17,7 @@ import (
 
 	"kubestack.dev/kubestack/internal/domain"
 	"kubestack.dev/kubestack/internal/engine"
+	"kubestack.dev/kubestack/internal/upgrade"
 )
 
 func u(apiVersion, kind, ns, name string, labels map[string]any, fields map[string]any) *unstructured.Unstructured {
@@ -59,7 +61,7 @@ func TestClassifyAndLifecycle(t *testing.T) {
 		u("rke.cattle.io/v1", "ETCDSnapshot", namespace, "s2", map[string]any{"rke.cattle.io/cluster-name": "rke"}, map[string]any{
 			"snapshotFile": map[string]any{"status": "failed", "createdAt": now.Add(time.Hour).Format(time.RFC3339)},
 		}),
-		u("cluster.x-k8s.io/v1beta2", "Machine", namespace, "m1", map[string]any{"cluster.x-k8s.io/cluster-name": "rke"}, map[string]any{
+		u("cluster.x-k8s.io/v1beta2", "Machine", namespace, "m1", map[string]any{"cluster.x-k8s.io/cluster-name": "rke", "rke.cattle.io/etcd-role": "true", "rke.cattle.io/control-plane-role": "true"}, map[string]any{
 			"status": map[string]any{"conditions": []any{map[string]any{"type": "Ready", "status": "True"}}},
 		}),
 		u("cluster.x-k8s.io/v1beta2", "Machine", namespace, "m2", map[string]any{"cluster.x-k8s.io/cluster-name": "rke"}, map[string]any{
@@ -81,12 +83,39 @@ func TestClassifyAndLifecycle(t *testing.T) {
 		t.Errorf("eks: %+v", c)
 	}
 
-	snap, err := e.LatestSnapshot(ctx, "rke")
-	if err != nil || !snap.Equal(now) {
-		t.Errorf("snapshot = %v, %v; want %v (failed snapshots ignored)", snap, err, now)
+	snaps, err := e.Snapshots(ctx, "rke")
+	if err != nil || len(snaps) != 2 {
+		t.Fatalf("snapshots: %+v %v", snaps, err)
 	}
-	if r, n, _ := e.NodeHealth(ctx, "rke"); r != 1 || n != 2 {
-		t.Errorf("node health = %d/%d, want 1/2", r, n)
+	if p := upgrade.PreflightFrom(snaps, nil); !p.LatestSnapshot.Equal(now) {
+		t.Errorf("latest successful snapshot = %v, want %v (failed snapshots ignored)", p.LatestSnapshot, now)
+	}
+	nodes, _ := e.Nodes(ctx, "rke")
+	if p := upgrade.PreflightFrom(nil, nodes); p.ReadyNodes != 1 || p.TotalNodes != 2 {
+		t.Errorf("node health = %d/%d, want 1/2", p.ReadyNodes, p.TotalNodes)
+	}
+	if nodes[0].Name != "m1" || len(nodes[0].Roles) != 2 || nodes[0].Roles[0] != "etcd" {
+		t.Errorf("roles from labels: %+v", nodes[0])
+	}
+
+	if err := e.CreateSnapshot(ctx, "rke"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.RestoreSnapshot(ctx, "rke", "s1"); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := e.prov().Get(ctx, "rke", metav1.GetOptions{})
+	if g, _, _ := unstructured.NestedInt64(p.Object, "spec", "rkeConfig", "etcdSnapshotCreate", "generation"); g != 1 {
+		t.Errorf("etcdSnapshotCreate.generation = %d", g)
+	}
+	if n, _, _ := unstructured.NestedString(p.Object, "spec", "rkeConfig", "etcdSnapshotRestore", "name"); n != "s1" {
+		t.Errorf("etcdSnapshotRestore.name = %q", n)
+	}
+	if err := e.RemoveNode(ctx, "other", "m2"); !errors.Is(err, engine.ErrNotFound) {
+		t.Errorf("removing another cluster's machine: %v", err)
+	}
+	if err := e.RemoveNode(ctx, "rke", "m2"); err != nil {
+		t.Fatal(err)
 	}
 
 	if err := e.UpgradeCluster(ctx, "rke", "v1.35.9+rke2r1"); err != nil {

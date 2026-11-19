@@ -89,7 +89,9 @@ func TestCapabilityRefusals(t *testing.T) {
 
 func TestPreflightBlocksStaleSnapshot(t *testing.T) {
 	h, eng, _ := setup("admins")
-	*eng = *fake.New(fake.Cluster{Cluster: mustGet(eng, "prod-eu"), Snapshot: time.Now().Add(-72 * time.Hour), ReadyNodes: 3, TotalNodes: 3})
+	*eng = *fake.New(fake.Cluster{Cluster: mustGet(eng, "prod-eu"),
+		Snapshots: []domain.Snapshot{{Name: "old", CreatedAt: time.Now().Add(-72 * time.Hour), Successful: true}},
+		Nodes:     []domain.Node{{Name: "n1", Ready: true, Roles: []string{"etcd", "controlplane", "worker"}}}})
 	w := do(h, "POST", "/api/v1/clusters/prod-eu/upgrade", `{"kubernetesVersion":"v1.35.9+rke2r1"}`, "k")
 	if w.Code != http.StatusPreconditionFailed || !strings.Contains(w.Body.String(), "snapshot") {
 		t.Fatalf("got %d %s", w.Code, w.Body)
@@ -152,5 +154,52 @@ func TestImportAndRegistration(t *testing.T) {
 	ro, _, _ := setup("viewers")
 	if w := do(ro, "GET", "/api/v1/clusters/prod-eu/registration", "", ""); w.Code != http.StatusForbidden {
 		t.Fatalf("non-admin registration: %d", w.Code)
+	}
+}
+
+func TestSnapshotRestoreAndNodes(t *testing.T) {
+	h, eng, st := setup("admins")
+	if w := do(h, "POST", "/api/v1/clusters/prod-eu/snapshots", "", ""); w.Code != http.StatusAccepted {
+		t.Fatalf("snapshot: %d %s", w.Code, w.Body)
+	}
+	snaps, _ := eng.Snapshots(context.Background(), "prod-eu")
+	if len(snaps) != 2 {
+		t.Fatalf("snapshot not taken: %+v", snaps)
+	}
+	if w := do(h, "POST", "/api/v1/clusters/prod-eu/restore", `{"snapshot":"prod-eu-etcd-1"}`, ""); w.Code != 400 {
+		t.Fatalf("restore without idempotency key: %d", w.Code)
+	}
+	if w := do(h, "POST", "/api/v1/clusters/prod-eu/restore", `{"snapshot":"other-cluster-snap"}`, "r0"); w.Code != 422 {
+		t.Fatalf("restore of unknown snapshot: %d", w.Code)
+	}
+	if w := do(h, "POST", "/api/v1/clusters/prod-eu/restore", `{"snapshot":"prod-eu-etcd-1"}`, "r1"); w.Code != http.StatusAccepted {
+		t.Fatalf("restore: %d %s", w.Code, w.Body)
+	}
+	if w := do(h, "POST", "/api/v1/clusters/legacy-k3s/snapshots", "", ""); w.Code != http.StatusConflict {
+		t.Fatalf("attached snapshot must be refused: %d", w.Code)
+	}
+
+	if w := do(h, "DELETE", "/api/v1/clusters/prod-eu/nodes/node-0", "", "n0"); w.Code != http.StatusConflict {
+		t.Fatalf("removing the only etcd node must be refused: %d %s", w.Code, w.Body)
+	}
+	if w := do(h, "DELETE", "/api/v1/clusters/prod-eu/nodes/node-2", "", "n2"); w.Code != http.StatusAccepted {
+		t.Fatalf("remove worker: %d %s", w.Code, w.Body)
+	}
+	if nodes, _ := eng.Nodes(context.Background(), "prod-eu"); len(nodes) != 2 {
+		t.Fatalf("node not removed: %+v", nodes)
+	}
+	recs, _ := st.ListAudit(context.Background(), 20)
+	actions := map[string]int{}
+	for _, r := range recs {
+		if r.Result == audit.ResultSuccess {
+			actions[r.Action]++
+		}
+	}
+	if actions["snapshot"] != 1 || actions["restore"] != 1 || actions["remove-node"] != 1 {
+		t.Fatalf("audit: %v", actions)
+	}
+	w := do(h, "GET", "/api/v1/clusters/prod-eu/nodes", "", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"roles":["etcd","controlplane"]`) {
+		t.Fatalf("list nodes: %d %s", w.Code, w.Body)
 	}
 }

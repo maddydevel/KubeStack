@@ -8,11 +8,11 @@ import type { Cluster } from "./api";
 
 const prod: Cluster = {
   id: "prod-eu", name: "prod-eu", tier: "provisioned", upgradeOwner: "rancher", kubernetesVersion: "v1.34.12+rke2r1", ready: true,
-  operations: { upgrade: { allowed: true }, delete: { allowed: true }, register: { allowed: true } },
+  operations: { upgrade: { allowed: true }, delete: { allowed: true }, register: { allowed: true }, snapshot: { allowed: true }, restore: { allowed: true }, removeNode: { allowed: true } },
 };
 const eks: Cluster = {
   id: "eks", name: "eks", tier: "hosted", upgradeOwner: "cloud", kubernetesVersion: "v1.33.4-eks", ready: true,
-  operations: { upgrade: { allowed: false, reason: "hosted clusters do not support upgrade from KubeStack" }, delete: { allowed: false, reason: "no" }, register: { allowed: false, reason: "no" } },
+  operations: { upgrade: { allowed: false, reason: "hosted clusters do not support upgrade from KubeStack" }, delete: { allowed: false, reason: "no" }, register: { allowed: false, reason: "no" }, snapshot: { allowed: false, reason: "no" }, restore: { allowed: false, reason: "no" }, removeNode: { allowed: false, reason: "no" } },
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -25,6 +25,8 @@ beforeEach(() => {
       if (url.endsWith("/clusters") && (!init?.method || init.method === "GET")) return [prod, eks];
       if (url.endsWith("/versions")) return ["v1.34.12+rke2r1", "v1.35.9+rke2r1"];
       if (url.includes("/audit")) return [];
+      if (url.endsWith("/snapshots") && (!init?.method || init.method === "GET")) return [{ name: "prod-eu-etcd-1", createdAt: "2026-11-18T10:00:00Z", successful: true }];
+      if (url.endsWith("/nodes")) return [{ name: "cp-0", ready: true, roles: ["etcd", "controlplane"] }];
       if (url.endsWith("/registration")) return { command: "curl -fL https://e/install.sh | sudo sh -s - --token {token}", token: { namespace: "c-m-1", name: "crt-token-a", key: "token" } };
       if (url.endsWith("/upgrade")) return { error: "pre-flight checks failed", details: ["latest etcd snapshot is 72h0m0s old (max 24h0m0s)"] };
       return { status: "deleting" };
@@ -105,4 +107,29 @@ test("registration shows a script that reads the token via kubectl, never the to
 test("import URL placeholder is braced so the shell does not swallow the suffix", () => {
   const s = registrationScript({ command: "kubectl apply -f https://r/v3/import/{token}_c-2.yaml", token: { namespace: "c-2", name: "t", key: "token" } }, false);
   expect(s.split("\n")[1]).toBe("kubectl apply -f https://r/v3/import/${TOKEN}_c-2.yaml");
+});
+
+test("restore needs the cluster name typed and sends an idempotency key", async () => {
+  const user = userEvent.setup();
+  renderApp();
+  await user.click(within(await rowFor("prod-eu")).getByRole("button", { name: "Backups" }));
+  await user.click(await screen.findByRole("button", { name: "Restore…" }));
+  const confirm = screen.getByRole("button", { name: "Restore snapshot" }) as HTMLButtonElement;
+  expect(confirm.disabled).toBe(true);
+  await user.type(screen.getByLabelText("Cluster name confirmation"), "prod-eu");
+  await user.click(confirm);
+  const call = fetchMock.mock.calls.find(([u]) => String(u).endsWith("/restore"))!;
+  expect(JSON.parse(call[1].body)).toEqual({ snapshot: "prod-eu-etcd-1" });
+  expect((call[1].headers as Record<string, string>)["Idempotency-Key"]).toMatch(/[0-9a-f-]{36}/);
+});
+
+test("node removal needs the node name typed", async () => {
+  const user = userEvent.setup();
+  renderApp();
+  await user.click(within(await rowFor("prod-eu")).getByRole("button", { name: "Nodes" }));
+  await user.click(await screen.findByRole("button", { name: "Remove…" }));
+  await user.type(screen.getByLabelText("Node name confirmation"), "cp-0");
+  await user.click(screen.getByRole("button", { name: "Remove node" }));
+  const call = fetchMock.mock.calls.find(([, i]) => i?.method === "DELETE")!;
+  expect(call[0]).toBe("/api/v1/clusters/prod-eu/nodes/cp-0");
 });

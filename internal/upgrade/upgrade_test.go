@@ -65,3 +65,14 @@ func TestCatalogParses(t *testing.T) {
 		}
 	}
 }
+
+func TestPreflightFrom(t *testing.T) {
+	now := time.Now()
+	p := PreflightFrom(
+		[]domain.Snapshot{{CreatedAt: now.Add(-time.Hour), Successful: true}, {CreatedAt: now, Successful: false}},
+		[]domain.Node{{Ready: true}, {Ready: false}},
+	)
+	if !p.LatestSnapshot.Equal(now.Add(-time.Hour)) || p.ReadyNodes != 1 || p.TotalNodes != 2 {
+		t.Errorf("failed snapshots must be ignored and nodes counted: %+v", p)
+	}
+}

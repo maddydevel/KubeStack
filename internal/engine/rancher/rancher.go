@@ -6,6 +6,7 @@ package rancher
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -212,44 +213,96 @@ func (e *Engine) DeleteCluster(ctx context.Context, id string) error {
 	return mapErr(e.prov().Delete(ctx, id, metav1.DeleteOptions{}))
 }
 
-func (e *Engine) LatestSnapshot(ctx context.Context, id string) (time.Time, error) {
+// Snapshots lists rke.cattle.io/v1 ETCDSnapshots: snapshotFile.{status,createdAt}.
+func (e *Engine) Snapshots(ctx context.Context, id string) ([]domain.Snapshot, error) {
 	l, err := e.c.Resource(snapGVR).Namespace(namespace).List(ctx, metav1.ListOptions{LabelSelector: "rke.cattle.io/cluster-name=" + id})
 	if err != nil {
-		return time.Time{}, err
+		return nil, err
 	}
-	var latest time.Time
+	out := make([]domain.Snapshot, 0, len(l.Items))
 	for _, s := range l.Items {
-		// rke.cattle.io/v1 ETCDSnapshot.snapshotFile.{status,createdAt}
-		if st, _, _ := unstructured.NestedString(s.Object, "snapshotFile", "status"); st != "successful" {
-			continue
-		}
+		st, _, _ := unstructured.NestedString(s.Object, "snapshotFile", "status")
 		raw, _, _ := unstructured.NestedString(s.Object, "snapshotFile", "createdAt")
 		t, err := time.Parse(time.RFC3339, raw)
 		if err != nil {
 			t = s.GetCreationTimestamp().Time
 		}
-		if t.After(latest) {
-			latest = t
-		}
+		out = append(out, domain.Snapshot{Name: s.GetName(), CreatedAt: t, Successful: st == "successful"})
 	}
-	return latest, nil
+	return out, nil
 }
 
-// NodeHealth counts Cluster API machines with condition Ready=True.
-func (e *Engine) NodeHealth(ctx context.Context, id string) (int, int, error) {
+// bumpGeneration requests a one-shot rkeConfig operation (etcdSnapshotCreate/etcdSnapshotRestore):
+// Rancher acts when the generation changes. resourceVersion makes concurrent requests conflict, not merge.
+func (e *Engine) bumpGeneration(ctx context.Context, id, field string, extra map[string]any) error {
+	p, err := e.prov().Get(ctx, id, metav1.GetOptions{})
+	if err != nil {
+		return mapErr(err)
+	}
+	gen, _, _ := unstructured.NestedInt64(p.Object, "spec", "rkeConfig", field, "generation")
+	op := map[string]any{"generation": gen + 1}
+	for k, v := range extra {
+		op[k] = v
+	}
+	patch, _ := json.Marshal(map[string]any{
+		"metadata": map[string]any{"resourceVersion": p.GetResourceVersion()},
+		"spec":     map[string]any{"rkeConfig": map[string]any{field: op}},
+	})
+	_, err = e.prov().Patch(ctx, id, types.MergePatchType, patch, metav1.PatchOptions{})
+	if apierrors.IsConflict(err) {
+		return fmt.Errorf("%w: cluster changed concurrently, retry", engine.ErrConflict)
+	}
+	return mapErr(err)
+}
+
+func (e *Engine) CreateSnapshot(ctx context.Context, id string) error {
+	return e.bumpGeneration(ctx, id, "etcdSnapshotCreate", nil)
+}
+
+// RestoreSnapshot uses restoreRKEConfig "none": etcd data only, keeping the current version and config.
+func (e *Engine) RestoreSnapshot(ctx context.Context, id, snapshot string) error {
+	return e.bumpGeneration(ctx, id, "etcdSnapshotRestore", map[string]any{"name": snapshot, "restoreRKEConfig": "none"})
+}
+
+// Role labels from Rancher v2.15.3 pkg/capr/common.go.
+var roleLabels = map[string]string{"etcd": "rke.cattle.io/etcd-role", "controlplane": "rke.cattle.io/control-plane-role", "worker": "rke.cattle.io/worker-role"}
+
+// Nodes lists Cluster API machines; Ready is condition Ready=True.
+func (e *Engine) Nodes(ctx context.Context, id string) ([]domain.Node, error) {
 	l, err := e.c.Resource(machineGVR).Namespace(namespace).List(ctx, metav1.ListOptions{LabelSelector: "cluster.x-k8s.io/cluster-name=" + id})
 	if err != nil {
-		return 0, 0, err
+		return nil, err
 	}
-	ready := 0
+	out := make([]domain.Node, 0, len(l.Items))
 	for _, m := range l.Items {
+		n := domain.Node{Name: m.GetName(), Roles: []string{}}
 		conds, _, _ := unstructured.NestedSlice(m.Object, "status", "conditions")
 		for _, c := range conds {
 			if cm, ok := c.(map[string]any); ok && cm["type"] == "Ready" && cm["status"] == "True" {
-				ready++
-				break
+				n.Ready = true
 			}
 		}
+		for _, r := range []string{"etcd", "controlplane", "worker"} {
+			if m.GetLabels()[roleLabels[r]] == "true" {
+				n.Roles = append(n.Roles, r)
+			}
+		}
+		out = append(out, n)
 	}
-	return ready, len(l.Items), nil
+	return out, nil
 }
+
+// RemoveNode deletes the CAPI Machine; Rancher drains and removes the node. The machine must belong to id.
+func (e *Engine) RemoveNode(ctx context.Context, id, node string) error {
+	m, err := e.c.Resource(machineGVR).Namespace(namespace).Get(ctx, node, metav1.GetOptions{})
+	if err != nil {
+		return mapErr(err)
+	}
+	if m.GetLabels()["cluster.x-k8s.io/cluster-name"] != id {
+		return engine.ErrNotFound
+	}
+	return mapErr(e.c.Resource(machineGVR).Namespace(namespace).Delete(ctx, node, metav1.DeleteOptions{
+		Preconditions: &metav1.Preconditions{UID: ptr(m.GetUID())}}))
+}
+
+func ptr[T any](v T) *T { return &v }

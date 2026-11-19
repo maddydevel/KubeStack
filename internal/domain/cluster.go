@@ -6,6 +6,7 @@ package domain
 import (
 	"fmt"
 	"regexp"
+	"time"
 )
 
 type Tier string
@@ -31,9 +32,12 @@ const (
 	OpUpgrade  Operation = "upgrade"
 	OpDelete   Operation = "delete"
 	OpRegister Operation = "register" // join nodes (provisioned) or connect the cluster agent (attached)
+	OpSnapshot Operation = "snapshot" // take an etcd snapshot
+	OpRestore  Operation = "restore"  // restore etcd from a snapshot (destructive)
+	OpRemove   Operation = "removeNode"
 )
 
-var Operations = []Operation{OpUpgrade, OpDelete, OpRegister}
+var Operations = []Operation{OpUpgrade, OpDelete, OpRegister, OpSnapshot, OpRestore, OpRemove}
 
 type Cluster struct {
 	ID                string       `json:"id"`
@@ -60,7 +64,7 @@ func (c Cluster) Allowed(op Operation) (bool, string) {
 		return false, fmt.Sprintf("%s clusters do not support %s from KubeStack", c.Tier, op)
 	}
 	switch op {
-	case OpDelete:
+	case OpDelete, OpSnapshot, OpRestore, OpRemove:
 		return true, ""
 	case OpUpgrade:
 		switch c.UpgradeOwner {
@@ -123,4 +127,39 @@ type SecretRef struct {
 	Namespace string `json:"namespace"`
 	Name      string `json:"name"`
 	Key       string `json:"key"`
+}
+
+type Snapshot struct {
+	Name       string    `json:"name"`
+	CreatedAt  time.Time `json:"createdAt"`
+	Successful bool      `json:"successful"`
+}
+
+type Node struct {
+	Name  string   `json:"name"`
+	Ready bool     `json:"ready"`
+	Roles []string `json:"roles"` // etcd, controlplane, worker
+}
+
+// RemovalBlocked refuses removing a node that would leave the cluster without etcd or a control plane.
+func RemovalBlocked(nodes []Node, name string) string {
+	var target *Node
+	count := map[string]int{}
+	for i, n := range nodes {
+		if n.Name == name {
+			target = &nodes[i]
+		}
+		for _, r := range n.Roles {
+			count[r]++
+		}
+	}
+	if target == nil {
+		return "node not found in this cluster"
+	}
+	for _, r := range target.Roles {
+		if (r == "etcd" || r == "controlplane") && count[r] == 1 {
+			return "refusing to remove the last " + r + " node"
+		}
+	}
+	return ""
 }
