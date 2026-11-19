@@ -8,10 +8,16 @@
 package rancher
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -81,7 +87,10 @@ func TestE2E(t *testing.T) {
 	version = catalog[len(catalog)-1]
 
 	// Registration commands need Rancher's server URL; a fresh install has none.
-	const serverURL = "https://engine.kubestack-e2e.test"
+	serverURL := "https://engine.kubestack-e2e.test"
+	if u := os.Getenv("KUBESTACK_E2E_SERVER_URL"); u != "" {
+		serverURL = u // reachable by the real imported cluster
+	}
 	if _, err := e.c.Resource(schema.GroupVersionResource{Group: "management.cattle.io", Version: "v3", Resource: "settings"}).
 		Patch(ctx, "server-url", types.MergePatchType, []byte(`{"value":"`+serverURL+`"}`), metav1.PatchOptions{}); err != nil {
 		t.Fatalf("set server-url: %v", err)
@@ -196,6 +205,22 @@ func TestE2E(t *testing.T) {
 		t.Errorf("import command not in the expected form: %q", reg.Command)
 	}
 	checkTokenSecret(t, e, reg.Token)
+	if kc := os.Getenv("KUBESTACK_E2E_IMPORT_KUBECONFIG"); kc != "" {
+		connectRealCluster(t, e, reg, kc)
+		eventually(t, 8*time.Minute, "imported K3s cluster connected and ready", func() (bool, error) {
+			c, err := e.GetCluster(ctx, imp)
+			return err == nil && c.Ready && c.KubernetesVersion != "", err
+		})
+		c, _ := e.GetCluster(ctx, imp)
+		t.Logf("imported cluster: %+v", c)
+		// Rancher v2.15 enables imported-cluster version management by default, so it owns K3s upgrades.
+		if c.Tier != domain.TierAttached || c.UpgradeOwner != domain.OwnerRancher || !strings.Contains(c.KubernetesVersion, "k3s") {
+			t.Errorf("real imported K3s classified as %+v", c)
+		}
+		if ok, why := c.Allowed(domain.OpUpgrade); ok || why == "" {
+			t.Errorf("upgrade of imported cluster must be refused with a reason: %v %q", ok, why)
+		}
+	}
 	if err := e.DeleteCluster(ctx, imp); err != nil {
 		t.Fatal(err)
 	}
@@ -226,5 +251,39 @@ func checkTokenSecret(t *testing.T, e *Engine, ref domain.SecretRef) {
 	}
 	if v, _, _ := unstructured.NestedString(sec.Object, "data", ref.Key); v == "" {
 		t.Fatalf("token secret %s/%s has no %q", ref.Namespace, ref.Name, ref.Key)
+	}
+}
+
+// connectRealCluster does what an operator does with the registration command: read the token from
+// the referenced Secret, substitute it, and kubectl-apply the manifest to the existing cluster. The
+// manifest is fetched with TLS verification off because the e2e Rancher uses its self-signed CA (the
+// agent itself pins that CA by checksum); kubectl in the Rancher container applies it.
+func connectRealCluster(t *testing.T, e *Engine, reg domain.Registration, kubeconfig string) {
+	t.Helper()
+	sec, err := e.c.Resource(schema.GroupVersionResource{Version: "v1", Resource: "secrets"}).Namespace(reg.Token.Namespace).
+		Get(context.Background(), reg.Token.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b64, _, _ := unstructured.NestedString(sec.Object, "data", reg.Token.Key)
+	token, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	url := strings.Fields(strings.ReplaceAll(reg.Command, domain.TokenPlaceholder, string(token)))[3]                                     // kubectl apply -f <url>
+	client := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}} // #nosec G402 -- e2e only, see above
+	resp, err := client.Get(url)
+	if err != nil {
+		t.Fatal("fetch import manifest failed") // the URL embeds the token; don't print it
+	}
+	defer resp.Body.Close()
+	manifest, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("fetch import manifest: HTTP %d", resp.StatusCode)
+	}
+	cmd := exec.Command("kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-")
+	cmd.Stdin = bytes.NewReader(manifest)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("kubectl apply import manifest: %v\n%s", err, out)
 	}
 }
