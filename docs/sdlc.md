@@ -169,7 +169,9 @@ Manual checks: the portal (fake engine, one cluster per tier) disables Upgrade/D
 Upgrade for attached clusters, with the server's reason in the button's tooltip and `aria-description`: pass.
 Not done in this run: the kubectl tokens were passed with `--token` instead of the portal's kubelogin `exec`
 kubeconfig, because the kubelogin download was blocked in this session; the air-gapped install from the bundle
-(the bundle build was blocked in this session); `cosign verify` (needs the release tag).
+(the bundle build was blocked in this session).
+Release: tag `v0.2.0` on `main` (same Go, portal and chart code as the binary tested above); `release.yml` passed, and
+`cosign verify ghcr.io/maddydevel/kubestack/kubestack-api:v0.2.0` (keyless, GitHub OIDC issuer) passed.
 
 ### Findings fixed because of e2e against real Rancher
 1. **Stale release catalog**: Rancher v2.15.3 supports RKE2 v1.34–v1.36 (default v1.36.5); the bundled
@@ -192,3 +194,6 @@ kubeconfig, because the kubelogin download was blocked in this session; the air-
   `make ci` passes with a temporary host-network builder:
   `docker buildx create --name ks-hostnet --driver docker-container --driver-opt network=host`
   then `BUILDX_BUILDER=ks-hostnet make ci`.
+- `kiri machine create` makes containers on the host kernel (no systemd as PID 1, no `/lib/modules`), so they
+  cannot run RKE2; use KVM VMs for node tests. Kiri's published ports reset connections (2026-11-19), so
+  `make dev-up` for VM tests runs on the host Docker engine (`DOCKER_CONTEXT=default`).
