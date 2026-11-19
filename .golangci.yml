@@ -1,0 +1,11 @@
+# golangci-lint v1 config. The linter runs in Docker (make lint-go); it is a dev tool, never shipped.
+linters:
+  enable: [errcheck, govet, staticcheck, unused, ineffassign, gosec, bodyclose]
+linters-settings:
+  errcheck:
+    exclude-functions:
+      - (net/http.ResponseWriter).Write # a failed write to a gone client has no recovery
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters: [errcheck, gosec]

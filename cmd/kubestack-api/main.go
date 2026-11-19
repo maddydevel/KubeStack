@@ -102,7 +102,9 @@ func run() error {
 		<-ctx.Done()
 		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		srv.Shutdown(sctx)
+		if err := srv.Shutdown(sctx); err != nil {
+			slog.Warn("shutdown", "err", err)
+		}
 	}()
 	slog.Info("listening", "addr", srv.Addr)
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {

@@ -30,8 +30,6 @@ type Server struct {
 	Login      interface{ Routes(*http.ServeMux) } // optional portal login flow
 }
 
-type ctxKey struct{}
-
 // reply is what every handler returns; the wrapper serialises it (and stores it for idempotency).
 type reply struct {
 	status int

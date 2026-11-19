@@ -41,7 +41,9 @@ func (l *Login) Routes(mux *http.ServeMux) {
 
 func random() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand failed: " + err.Error()) // no safe fallback for login state
+	}
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 

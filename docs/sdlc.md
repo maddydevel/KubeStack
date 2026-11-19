@@ -86,7 +86,15 @@ All of it: `make ci`. CI runs the same targets (`.github/workflows/ci.yml`).
 1. `make ci` green; e2e green for every version in `deploy/compat.yaml`.
 2. Update `compliance/THIRD-PARTY.md` if dependencies changed; add ADR if behaviour changed.
 3. Bump `deploy/helm/kubestack/Chart.yaml` `version`/`appVersion`; tag `vX.Y.Z` (Conventional Commits).
-4. `make image TAG=vX.Y.Z REGISTRY=<registry>`; push; add the image to `deploy/airgap/images.txt`.
+4. Push tag `vX.Y.Z`. `release.yml` builds the image, pushes it to GHCR, signs it with cosign (keyless,
+   GitHub OIDC), attaches the SPDX SBOM as an attestation and publishes `kubestack-airgap-vX.Y.Z.tar.gz`.
+   Locally: `make airgap-bundle TAG=vX.Y.Z REGISTRY=<registry>`.
+5. Verify: `cosign verify ghcr.io/<owner>/kubestack/kubestack-api:vX.Y.Z --certificate-identity-regexp 'github.com/<owner>/KubeStack' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+
+**Air-gapped install:** copy the bundle across, `tar xzf`, `./mirror.sh <mirror>` (verifies SHA256SUMS, loads and
+pushes the unmodified image), then `helm install` the bundled chart with `image.registry=<mirror>`.
+KubeStack's installer accepts no third-party terms on the operator's behalf (R8); community Rancher's own
+install is the operator's step.
 
 ## 6. Operate
 **Install** (into Rancher's local cluster, in-cluster identity):
@@ -117,7 +125,8 @@ portal with an OIDC-aware proxy that forwards `Authorization: Bearer <id_token>`
 ## 7. Known gaps (backlog)
 - Per-user downstream access via OIDC → impersonation (R16).
 - KubeStack-owned upgrades via System Upgrade Controller; `kubestack-controller` + CRDs.
-- SBOM/cosign, air-gap bundle, golangci-lint/eslint.
+- SBOM covers the Go binary and base image; portal npm packages are listed in `compliance/THIRD-PARTY.md`
+  (bundled JS is not detected by syft).
 
 ## 8. Verification record — 2026-11-17
 | Stage | Command | Result |

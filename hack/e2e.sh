@@ -4,14 +4,16 @@
 # Runs the engine e2e test inside a disposable community Rancher container, against its embedded
 # local cluster, with no network access needed inside the container: system charts are the bundled
 # ones and the images Rancher needs are preloaded from hack/e2e-images/<version>.txt.
-# Usage: hack/e2e.sh v2.15.3
+# Usage: hack/e2e.sh v2.15.3 [--up]
+#   --up: leave Rancher running for development (make dev-up), kubeconfig in bin/rancher-dev.kubeconfig.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-RANCHER=${1:?usage: hack/e2e.sh <rancher version>}
+RANCHER=${1:?usage: hack/e2e.sh <rancher version> [--up]}
+UP=${2:-}
 NAME=kubestack-e2e-rancher
 export GOTOOLCHAIN=local
 
-CGO_ENABLED=0 go test -c -tags e2e -o bin/rancher-e2e.test ./internal/engine/rancher/
+[[ -n $UP ]] || CGO_ENABLED=0 go test -c -tags e2e -o bin/rancher-e2e.test ./internal/engine/rancher/
 
 LIST=hack/e2e-images/$RANCHER.txt
 [[ -f $LIST ]] || { echo "missing $LIST: run Rancher $RANCHER once, list its ErrImagePull images there"; exit 1; }
@@ -20,11 +22,13 @@ for i in $IMAGES; do docker image inspect "$i" >/dev/null 2>&1 || docker pull -q
 docker save $IMAGES -o bin/e2e-images-$RANCHER.tar
 
 docker rm -f "$NAME" >/dev/null 2>&1 || true
-trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
+[[ -n $UP ]] || trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
 # Privileged is required by the single-container Rancher install (embedded k3s). Test use only.
 # AGGREGATION_REGISTRATION_TIMEOUT: slow first boot otherwise trips Rancher's extension-API registration
 # deadline (see https://ranchermanager.docs.rancher.com/api/extension-apiserver).
-docker run -d --name "$NAME" --privileged \
+PORTS=()
+[[ -n $UP ]] && PORTS=(-p 127.0.0.1:16443:6443)
+docker run -d --name "$NAME" --privileged "${PORTS[@]}" \
   -e CATTLE_BOOTSTRAP_PASSWORD=kubestack-e2e -e CATTLE_SYSTEM_CATALOG=bundled -e AGGREGATION_REGISTRATION_TIMEOUT=10m \
   -v "$PWD/bin/e2e-images-$RANCHER.tar:/var/lib/rancher/k3s/agent/images/kubestack-e2e.tar:ro" \
   "rancher/rancher:$RANCHER" >/dev/null
@@ -47,6 +51,13 @@ for _ in $(seq 120); do
   sleep 5
 done
 [[ -n $ready ]] || { echo "Rancher not ready after 10 minutes"; docker logs --tail 40 "$NAME"; exit 1; }
+
+if [[ -n $UP ]]; then
+  docker exec "$NAME" cat /etc/rancher/k3s/k3s.yaml | sed 's#https://127.0.0.1:6443#https://127.0.0.1:16443#' > bin/rancher-dev.kubeconfig
+  chmod 600 bin/rancher-dev.kubeconfig
+  echo "Rancher $RANCHER is up. KUBECONFIG=bin/rancher-dev.kubeconfig; make run-dev-rancher; make dev-down to remove."
+  exit 0
+fi
 
 docker cp bin/rancher-e2e.test "$NAME":/tmp/rancher-e2e.test
 if ! docker exec -e KUBECONFIG=/etc/rancher/k3s/k3s.yaml "$NAME" /tmp/rancher-e2e.test -test.v -test.timeout 10m; then
