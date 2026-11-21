@@ -37,7 +37,8 @@ fi
 # AGGREGATION_REGISTRATION_TIMEOUT: slow first boot otherwise trips Rancher's extension-API registration
 # deadline (see https://ranchermanager.docs.rancher.com/api/extension-apiserver).
 PORTS=()
-[[ -n $UP ]] && PORTS=(-p 127.0.0.1:16443:6443 -p 127.0.0.1:18443:443) # 18443: server URL for local VMs
+# 18443: Rancher's server URL for nodes. DEV_BIND=0.0.0.0 lets pods on a node on this host reach it (CI).
+[[ -n $UP ]] && PORTS=(-p 127.0.0.1:16443:6443 -p "${DEV_BIND:-127.0.0.1}:18443:443")
 docker run -d --name "$NAME" --privileged "${PORTS[@]}" "${NETARGS[@]}" \
   -e CATTLE_BOOTSTRAP_PASSWORD=kubestack-e2e -e CATTLE_SYSTEM_CATALOG=bundled -e AGGREGATION_REGISTRATION_TIMEOUT=10m \
   -v "$PWD/bin/e2e-images-$RANCHER.tar:/var/lib/rancher/k3s/agent/images/kubestack-e2e.tar:ro" \
