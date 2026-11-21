@@ -80,7 +80,7 @@ func TestE2E(t *testing.T) {
 	catalog := upgrade.Versions()
 	minor := func(v string) string { p := strings.SplitN(v, ".", 3); return p[0] + "." + p[1] }
 	if !slices.ContainsFunc(catalog, func(c string) bool { return minor(c) == minor(version) }) {
-		t.Errorf("bundled release catalog %v has no %s release (Rancher default %s): refresh internal/upgrade/releases.json", catalog, minor(version), version)
+		t.Errorf("bundled release catalog %v has no %s release (Rancher default %s): run make catalog", catalog, minor(version), version)
 	} else if !slices.Contains(catalog, version) {
 		t.Logf("catalog drift: Rancher default %s is not in the bundled catalog %v", version, catalog)
 	}
