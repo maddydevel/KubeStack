@@ -189,11 +189,10 @@ Release: tag `v0.2.0` on `main` (same Go, portal and chart code as the binary te
    CAPI Cluster exists before deleting. Verified 3/3 consecutive passes on 2026-11-18 (89s, 46s, 45s).
 
 ### Environment notes (this workstation, not product issues)
-- Kiri's bridge network has no outbound DNS/NAT, and its default BuildKit builder can't resolve `gcr.io`.
-  This persisted after restarting Kiri (2026-11-18): its builder returns "not found" even for `alpine:3.20`.
-  `make ci` passes with a temporary host-network builder:
-  `docker buildx create --name ks-hostnet --driver docker-container --driver-opt network=host`
-  then `BUILDX_BUILDER=ks-hostnet make ci`.
+- Kiri's network was broken (no outbound NAT/DNS, published ports reset, BuildKit "not found"). Cause: Docker's
+  `docker0` and Kiri's `kiri0` both used 172.17.0.0/16, so traffic to Kiri containers was routed into the dead
+  `docker0`; and Docker's FORWARD DROP policy blocked `kiri0`. Fixed 2026-11-21: `/etc/docker/daemon.json` moves Docker
+  to 172.31.0.0/16 (pools 172.30.0.0/16), and `/etc/systemd/system/kiri.service.d/nat.conf` adds DOCKER-USER accept
+  rules and a MASQUERADE for 172.17.0.0/16. Builds, pulls and published ports work in Kiri again.
 - `kiri machine create` makes containers on the host kernel (no systemd as PID 1, no `/lib/modules`), so they
-  cannot run RKE2; use KVM VMs for node tests. Kiri's published ports reset connections (2026-11-19), so
-  `make dev-up` for VM tests runs on the host Docker engine (`DOCKER_CONTEXT=default`).
+  cannot run RKE2; use KVM VMs for node tests.
