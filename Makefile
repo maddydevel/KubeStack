@@ -41,6 +41,14 @@ e2e-matrix:
 
 helm-lint:
 	docker run --rm -v $(CURDIR)/deploy/helm:/charts alpine/helm:3.16.4 lint /charts/kubestack --set oidc.issuer=https://idp.example.internal,oidc.clientID=kubestack
+	# Regressions found by installing v0.2.0: kubelet cannot verify runAsNonRoot for a named image user, and the
+	# image must resolve to the path mirror.sh pushes.
+	docker run --rm -v $(CURDIR)/deploy/helm:/charts alpine/helm:3.16.4 template /charts/kubestack \
+	  --set oidc.issuer=https://idp.example.internal,oidc.clientID=kubestack,image.registry=mirror.internal,image.tag=vX \
+	  | grep -q 'runAsUser: 65532' && \
+	  docker run --rm -v $(CURDIR)/deploy/helm:/charts alpine/helm:3.16.4 template /charts/kubestack \
+	  --set oidc.issuer=https://idp.example.internal,oidc.clientID=kubestack,image.registry=mirror.internal,image.tag=vX \
+	  | grep -q 'image: "mirror.internal/kubestack/kubestack-api:vX"'
 
 image:
 	docker build --load --build-arg REGISTRY=docker.io -t $(IMAGE) .

@@ -10,8 +10,8 @@ sha256sum -c SHA256SUMS
 for tar in images/*.tar; do
   docker load -i "$tar"
 done
-while read -r src; do
-  dst="$MIRROR/${src#*/}" # replace the source registry host, keep repository and tag
+while read -r src rel; do
+  dst="$MIRROR/${rel:-${src#*/}}" # the listed mirror path, else the source path without its registry host
   docker tag "$src" "$dst" && docker push "$dst"
 done < images.txt
 echo "Install with: helm install kubestack ./kubestack-*.tgz --set image.registry=$MIRROR ..."

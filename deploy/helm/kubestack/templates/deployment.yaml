@@ -13,7 +13,7 @@ spec:
       labels: {app.kubernetes.io/name: kubestack-api}
     spec:
       serviceAccountName: kubestack-api
-      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: api
           image: "{{ with .Values.image.registry }}{{ . }}/{{ end }}{{ .Values.image.repository }}:{{ .Values.image.tag }}"

@@ -129,6 +129,9 @@ portal with an OIDC-aware proxy that forwards `Authorization: Bearer <id_token>`
 ## 7. Known gaps (backlog)
 - Direct access: a real kubectl login is not covered by e2e (no nodes).
 - Upgrading imported clusters needs etcd snapshot visibility for them (pre-flight can't be bypassed); refused with a reason.
+  Kept for GA (2026-11-21). Possible later route: RKE2/K3s record snapshots in-cluster as `ETCDSnapshotFile` (unverified).
+- KubeStack-owned upgrades (System Upgrade Controller): dropped from GA by the product owner (2026-11-21). No cluster
+  gets `upgradeOwner: kubestack` (provisioned = rancher, attached = rancher or none), so the path would be unreachable.
 - `kubestack-controller` + CRDs: deferred by the product owner until there is a GitOps user (2026-11-18).
 - SBOM covers the Go binary and base image; portal npm packages are listed in `compliance/THIRD-PARTY.md`
   (bundled JS is not detected by syft).
@@ -172,6 +175,19 @@ kubeconfig, because the kubelogin download was blocked in this session; the air-
 (the bundle build was blocked in this session).
 Release: tag `v0.2.0` on `main` (same Go, portal and chart code as the binary tested above); `release.yml` passed, and
 `cosign verify ghcr.io/maddydevel/kubestack/kubestack-api:v0.2.0` (keyless, GitHub OIDC issuer) passed.
+
+### v0.2.0 air-gapped install — 2026-11-21: FAIL, fixed for v0.2.1
+Published `kubestack-airgap-v0.2.0.tar.gz` on a Docker `--internal` network (no route out): bundle `mirror.sh` into a
+private registry (from its own daemon on that network), community Rancher v2.15.3 with bundled charts and preloaded
+images, Dex as the IdP, `helm install` of the bundled chart with `image.registry=<mirror>`.
+1. **ImagePullBackOff**: `mirror.sh` kept the GHCR owner path (`<mirror>/maddydevel/kubestack/kubestack-api`), the chart
+   pulls `<mirror>/kubestack/kubestack-api`; the chart's default registry (`""` = Docker Hub) did not exist either.
+   Fix: `images.txt` lists the mirror path, `mirror.sh` uses it; default registry is the published `ghcr.io/maddydevel`.
+2. **CreateContainerConfigError**: `runAsNonRoot` with the image's named user `nonroot`, which kubelet cannot verify.
+   Fix: `runAsUser/runAsGroup: 65532`.
+`make helm-lint` now renders the chart and fails on either regression. With both fixes the documented steps work
+unchanged: pod Running offline, `/healthz` ok, API 401 without a token, signed-in user lists clusters and versions
+through the chart's service account.
 
 ### Findings fixed because of e2e against real Rancher
 1. **Stale release catalog**: Rancher v2.15.3 supports RKE2 v1.34–v1.36 (default v1.36.5); the bundled
