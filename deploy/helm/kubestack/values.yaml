@@ -1,7 +1,7 @@
 image:
   registry: ghcr.io/maddydevel  # where releases are published; air-gapped: your mirror (mirror.sh output)
   repository: kubestack/kubestack-api
-  tag: "v0.2.0"
+  tag: "v0.2.1"
   pullPolicy: IfNotPresent
 
 adminGroup: kubestack-admins
