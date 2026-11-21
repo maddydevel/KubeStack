@@ -18,7 +18,8 @@ docker run --rm -v "$PWD/deploy/helm:/charts:ro" -v "$PWD/$OUT:/out" alpine/helm
   package /charts/kubestack --version "$VERSION" --app-version "$VERSION" -d /out >/dev/null
 cp -r compliance "$OUT/"
 cp deploy/airgap/mirror.sh "$OUT/"
-echo "$IMAGE" > "$OUT/images.txt"
+# "<source> <path in a mirror>": the path the chart pulls as <image.registry>/<image.repository>:<tag>.
+echo "$IMAGE kubestack/kubestack-api:$TAG" > "$OUT/images.txt"
 (cd "$OUT" && sha256sum images/* *.tgz sbom.spdx.json > SHA256SUMS)
 tar -C bin -czf "$OUT.tar.gz" "$(basename "$OUT")"
 echo "$OUT.tar.gz"
