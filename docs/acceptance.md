@@ -8,6 +8,9 @@ every release on infrastructure that resembles production. It takes about 1–2 
 - KubeStack installed with Helm into Rancher's local cluster (docs/sdlc.md §6), `oidc.redirectURL` set,
   `oidc.cliClientID` a **public** client, `oidc.caConfigMap` set if the IdP uses a private CA.
 - 4 Linux VMs (2 vCPU, 4 GB) that reach Rancher's server URL and that your workstation reaches on 6443.
+  The VMs must trust Rancher's TLS certificate: the 'Add nodes' script starts with `curl -fL https://<rancher>/...`,
+  which stops with a certificate error otherwise (self-signed Rancher: install `https://<rancher>/cacerts` in the
+  VM's trust store, as `.github/workflows/nodes.yml` does). Pods on the new cluster must also reach that URL.
 - Two IdP users: one in the admin group, one not. `kubectl` with the kubelogin plugin (`kubectl oidc-login`).
 - An ID token of the admin user in `KUBESTACK_TOKEN`, `KUBESTACK_URL` pointing at KubeStack; `curl`, `jq`.
 

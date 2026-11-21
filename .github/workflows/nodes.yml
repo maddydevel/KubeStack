@@ -1,0 +1,60 @@
+# Copyright 2026 The KubeStack Authors. All rights reserved.
+# Real-node acceptance: the runner VM joins a real RKE2 cluster provisioned through the KubeStack API
+# (community Rancher in Docker as the engine), then snapshot, restore, upgrade one minor, delete.
+# Slow (~30-50 min), so it runs weekly, on demand, and on PRs touching the engine or the scripts.
+name: nodes
+on:
+  workflow_dispatch:
+  schedule: [{cron: "0 3 * * 1"}]
+  pull_request:
+    paths: ["internal/engine/**", "internal/server/**", "hack/acceptance.sh", "hack/e2e.sh", ".github/workflows/nodes.yml"]
+jobs:
+  real-node:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod}
+      - name: Engine (community Rancher)
+        run: |
+          # Server URL on the runner's own address via a published port: the node and its pods (the cluster
+          # agent) reach it like a real Rancher; the container IP was not reachable from pods.
+          DEV_BIND=0.0.0.0 make dev-up
+          url=https://$(hostname -I | awk '{print $1}'):18443
+          kubectl --kubeconfig bin/rancher-dev.kubeconfig patch settings.management.cattle.io server-url --type merge -p "{\"value\":\"$url\"}"
+          # The node install script fetches over TLS; trust Rancher's self-signed CA like an operator would.
+          curl -sfk "$url/cacerts" | sudo tee /usr/local/share/ca-certificates/kubestack-e2e-rancher.crt >/dev/null
+          sudo update-ca-certificates >/dev/null
+          curl -sf "$url/ping"
+      - name: KubeStack API (real engine, dev auth, memory store)
+        run: |
+          go build -o bin/kubestack-api ./cmd/kubestack-api
+          KUBESTACK_ENGINE=rancher KUBESTACK_RANCHER_KUBECONFIG=bin/rancher-dev.kubeconfig KUBESTACK_DEV_AUTH=true \
+            KUBESTACK_LISTEN=127.0.0.1:8080 nohup ./bin/kubestack-api > bin/api.log 2>&1 &
+          for _ in $(seq 30); do curl -sf 127.0.0.1:8080/healthz && break; sleep 1; done
+      - name: Acceptance on this VM
+        env:
+          KUBESTACK_URL: http://127.0.0.1:8080
+          KUBESTACK_TOKEN: dev
+          KUBECONFIG: ${{ github.workspace }}/bin/rancher-dev.kubeconfig
+          NODES: "1"
+          JOIN: local
+          ACCESS: skip
+          JOIN_LOG: bin/join.log
+        run: hack/acceptance.sh ci-node v1.35.9+rke2r1 v1.36.5+rke2r1
+      - name: Diagnostics
+        if: failure()
+        run: |
+          export KUBECONFIG=bin/rancher-dev.kubeconfig
+          kubectl get clusters.provisioning.cattle.io,machines.cluster.x-k8s.io,etcdsnapshots.rke.cattle.io -A || true
+          kubectl -n fleet-default get clusters.provisioning.cattle.io -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{range .status.conditions[*]}  {.type}={.status} {.message}{"\n"}{end}{end}' || true
+          tail -50 bin/api.log || true
+          tail -40 bin/join.log || true
+          sudo journalctl -u rancher-system-agent --no-pager | tail -40 || true
+          sudo journalctl -u rke2-server --no-pager | tail -40 || true
+          k="sudo /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml"
+          $k get pods -A -o wide || true
+          $k -n cattle-system logs deploy/cattle-cluster-agent --tail 30 || true
+          $k -n cattle-system logs deploy/cattle-cluster-agent --previous --tail 30 || true
+          $k -n cattle-system describe pods -l app=cattle-cluster-agent | tail -20 || true

@@ -15,6 +15,7 @@ UP=${2:-}
 NAME=kubestack-e2e-rancher
 export GOTOOLCHAIN=local
 
+mkdir -p bin
 [[ -n $UP ]] || CGO_ENABLED=0 go test -c -tags e2e -o bin/rancher-e2e.test ./internal/engine/rancher/
 
 LIST=hack/e2e-images/$RANCHER.txt
@@ -36,7 +37,8 @@ fi
 # AGGREGATION_REGISTRATION_TIMEOUT: slow first boot otherwise trips Rancher's extension-API registration
 # deadline (see https://ranchermanager.docs.rancher.com/api/extension-apiserver).
 PORTS=()
-[[ -n $UP ]] && PORTS=(-p 127.0.0.1:16443:6443)
+# 18443: Rancher's server URL for nodes. DEV_BIND=0.0.0.0 lets pods on a node on this host reach it (CI).
+[[ -n $UP ]] && PORTS=(-p 127.0.0.1:16443:6443 -p "${DEV_BIND:-127.0.0.1}:18443:443")
 start_rancher() {
   docker rm -f "$NAME" >/dev/null 2>&1 || true
   docker run -d --name "$NAME" --privileged "${PORTS[@]}" "${NETARGS[@]}" \

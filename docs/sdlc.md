@@ -156,6 +156,23 @@ portal with an OIDC-aware proxy that forwards `Authorization: Bearer <id_token>`
 | #13 | Imported RKE2/K3s upgrade owner (R5) | unit, e2e: setting exists |
 Not exercised anywhere: real nodes (joining, draining, snapshot execution, kubectl OIDC login), `release.yml`.
 
+### v0.2.0 acceptance on real VMs — 2026-11-19 (docs/acceptance.md)
+Setup: community Rancher v2.15.3 (`make dev-up`, server URL `https://10.0.2.2:18443`, CA trusted on the nodes);
+4 KVM VMs (Ubuntu 24.04, 2 vCPU, 4 GB): 3 etcd+controlplane+worker and 1 worker, joined with the
+registration command plus `--address/--internal-address` on a private LAN. KubeStack API from this commit, memory store.
+| Run | Auth | Result |
+|-----|------|--------|
+| acc-1 | dev auth, `ACCESS=skip` | **PASS**: create, 4 nodes Ready, snapshot, restore, upgrade v1.35.9→v1.36.5 (Idempotency-Key replay 202), remove worker, delete, audit `success` for every operation |
+| acc-2 | Dex OIDC with a private CA (`KUBESTACK_OIDC_CA_FILE`), admin group `authors` | **PASS**: same steps. API: admin 200, non-admin GET 200 / POST 403, no token 401. Cluster API server with the CA from `/access`: admin `kubectl get nodes` lists the nodes (`oidc:` user and group), non-admin Forbidden, bad token Unauthorized |
+
+Manual checks: the portal (fake engine, one cluster per tier) disables Upgrade/Delete for hosted clusters and
+Upgrade for attached clusters, with the server's reason in the button's tooltip and `aria-description`: pass.
+Not done in this run: the kubectl tokens were passed with `--token` instead of the portal's kubelogin `exec`
+kubeconfig, because the kubelogin download was blocked in this session; the air-gapped install from the bundle
+(the bundle build was blocked in this session).
+Release: tag `v0.2.0` on `main` (same Go, portal and chart code as the binary tested above); `release.yml` passed, and
+`cosign verify ghcr.io/maddydevel/kubestack/kubestack-api:v0.2.0` (keyless, GitHub OIDC issuer) passed.
+
 ### Findings fixed because of e2e against real Rancher
 1. **Stale release catalog**: Rancher v2.15.3 supports RKE2 v1.34–v1.36 (default v1.36.5); the bundled
    catalog was v1.32–v1.34. Refreshed from Rancher's own release list; e2e now fails if the catalog lacks
@@ -177,3 +194,6 @@ Not exercised anywhere: real nodes (joining, draining, snapshot execution, kubec
   `make ci` passes with a temporary host-network builder:
   `docker buildx create --name ks-hostnet --driver docker-container --driver-opt network=host`
   then `BUILDX_BUILDER=ks-hostnet make ci`.
+- `kiri machine create` makes containers on the host kernel (no systemd as PID 1, no `/lib/modules`), so they
+  cannot run RKE2; use KVM VMs for node tests. Kiri's published ports reset connections (2026-11-19), so
+  `make dev-up` for VM tests runs on the host Docker engine (`DOCKER_CONTEXT=default`).
