@@ -12,7 +12,7 @@ GOLANGCI := docker run --rm -v $(CURDIR):/src -v $(shell go env GOMODCACHE):/go/
 
 .PHONY: build test test-integration lint license-check e2e e2e-matrix helm-lint image sbom airgap-bundle dev-up dev-down run-dev run-dev-rancher ci catalog catalog-check
 build:
-	go build -trimpath -o bin/kubestack-api ./cmd/kubestack-api
+	CGO_ENABLED=0 go build -trimpath -o bin/kubestack-api ./cmd/kubestack-api
 	cd portal && npm ci --no-audit --no-fund && npm run build
 
 test:
@@ -52,13 +52,14 @@ helm-lint:
 	  --set oidc.issuer=https://idp.example.internal,oidc.clientID=kubestack,image.registry=mirror.internal,image.tag=vX \
 	  | grep -q 'image: "mirror.internal/kubestack/kubestack-api:vX"'
 
-image:
-	docker build --load --build-arg REGISTRY=docker.io -t $(IMAGE) .
+image: build
+	docker build --load -t $(IMAGE) .
 
-sbom:
+sbom: build
 	mkdir -p bin && docker save $(IMAGE) -o bin/image.tar
 	docker run --rm -v $(CURDIR)/bin:/out anchore/syft:v1.18.1 -q docker-archive:/out/image.tar -o spdx-json=/out/sbom.spdx.json
 	rm bin/image.tar
+	cd portal && npm ls --json --omit=dev > ../bin/sbom-npm.json
 
 airgap-bundle: image
 	./hack/airgap-bundle.sh $(TAG) $(IMAGE)
