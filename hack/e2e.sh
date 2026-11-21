@@ -37,27 +37,38 @@ fi
 # deadline (see https://ranchermanager.docs.rancher.com/api/extension-apiserver).
 PORTS=()
 [[ -n $UP ]] && PORTS=(-p 127.0.0.1:16443:6443)
-docker run -d --name "$NAME" --privileged "${PORTS[@]}" "${NETARGS[@]}" \
-  -e CATTLE_BOOTSTRAP_PASSWORD=kubestack-e2e -e CATTLE_SYSTEM_CATALOG=bundled -e AGGREGATION_REGISTRATION_TIMEOUT=10m \
-  -v "$PWD/bin/e2e-images-$RANCHER.tar:/var/lib/rancher/k3s/agent/images/kubestack-e2e.tar:ro" \
-  "rancher/rancher:$RANCHER" >/dev/null
-
-echo "waiting for Rancher $RANCHER CRDs and webhook..."
+start_rancher() {
+  docker rm -f "$NAME" >/dev/null 2>&1 || true
+  docker run -d --name "$NAME" --privileged "${PORTS[@]}" "${NETARGS[@]}" \
+    -e CATTLE_BOOTSTRAP_PASSWORD=kubestack-e2e -e CATTLE_SYSTEM_CATALOG=bundled -e AGGREGATION_REGISTRATION_TIMEOUT=10m \
+    -v "$PWD/bin/e2e-images-$RANCHER.tar:/var/lib/rancher/k3s/agent/images/kubestack-e2e.tar:ro" \
+    "rancher/rancher:$RANCHER" >/dev/null
+  echo "waiting for Rancher $RANCHER CRDs and webhook..."
+  for _ in $(seq 120); do
+    if [[ $(docker inspect -f '{{.State.Running}}' "$NAME") != true ]]; then
+      echo "Rancher container exited:"; docker logs --tail 40 "$NAME"; return 2
+    fi
+    if docker exec "$NAME" kubectl get crd clusters.provisioning.cattle.io >/dev/null 2>&1 &&
+       docker exec "$NAME" kubectl -n cattle-system rollout status deploy/rancher-webhook --timeout=2s >/dev/null 2>&1 &&
+       docker exec "$NAME" kubectl get settings.management.cattle.io rke2-default-version >/dev/null 2>&1 &&
+       docker exec "$NAME" kubectl get machines.v1beta2.cluster.x-k8s.io,etcdsnapshots.rke.cattle.io -A >/dev/null 2>&1 &&
+       # CAPI webhook must be serving, or Rancher never creates the CAPI Cluster and deletion hangs
+       # on auth.cattle.io/capi-resources-cleanup (see rancher/rancher#40535).
+       docker exec "$NAME" kubectl -n cattle-capi-system rollout status deploy/capi-controller-manager --timeout=2s >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 5
+  done
+  return 1
+}
+# One retry only for a crash during boot (seen in CI: embedded k3s "failed to allocate a serviceIP ...
+# range is full"); a Rancher that boots but never becomes ready still fails immediately.
 ready=
-for _ in $(seq 120); do
-  if [[ $(docker inspect -f '{{.State.Running}}' "$NAME") != true ]]; then
-    echo "Rancher container exited:"; docker logs --tail 40 "$NAME"; exit 1
-  fi
-  if docker exec "$NAME" kubectl get crd clusters.provisioning.cattle.io >/dev/null 2>&1 &&
-     docker exec "$NAME" kubectl -n cattle-system rollout status deploy/rancher-webhook --timeout=2s >/dev/null 2>&1 &&
-     docker exec "$NAME" kubectl get settings.management.cattle.io rke2-default-version >/dev/null 2>&1 &&
-     docker exec "$NAME" kubectl get machines.v1beta2.cluster.x-k8s.io,etcdsnapshots.rke.cattle.io -A >/dev/null 2>&1 &&
-     # CAPI webhook must be serving, or Rancher never creates the CAPI Cluster and deletion hangs
-     # on auth.cattle.io/capi-resources-cleanup (see rancher/rancher#40535).
-     docker exec "$NAME" kubectl -n cattle-capi-system rollout status deploy/capi-controller-manager --timeout=2s >/dev/null 2>&1; then
-    ready=1; break
-  fi
-  sleep 5
+for attempt in 1 2; do
+  rc=0; start_rancher || rc=$?
+  if [[ $rc == 0 ]]; then ready=1; break; fi
+  [[ $rc == 2 && $attempt == 1 ]] || break
+  echo "retrying Rancher startup once"
 done
 [[ -n $ready ]] || { echo "Rancher not ready after 10 minutes"; docker logs --tail 40 "$NAME"; exit 1; }
 
