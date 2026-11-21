@@ -189,6 +189,14 @@ images, Dex as the IdP, `helm install` of the bundled chart with `image.registry
 unchanged: pod Running offline, `/healthz` ok, API 401 without a token, signed-in user lists clusters and versions
 through the chart's service account.
 
+### v0.2.1 release — 2026-11-21: PASS
+Tag `v0.2.1` (chart 0.2.1: Helm install fixes #21, generated RKE2 catalog #20). `release.yml` passed;
+`cosign verify ghcr.io/maddydevel/kubestack/kubestack-api:v0.2.1` passed. Air-gapped install of the published
+`kubestack-airgap-v0.2.1.tar.gz` on a Docker `--internal` network with exactly the documented steps (`./mirror.sh
+<mirror>`, then `helm install` with `image.registry=<mirror>`, no other overrides): checksums OK, image pushed to
+`<mirror>/kubestack/kubestack-api:v0.2.1`, pod Running in the offline community Rancher, `/healthz` ok, 401 without a
+token, a Dex-signed-in user lists clusters (200) and the catalog versions through the chart's service account.
+
 ### Findings fixed because of e2e against real Rancher
 1. **Stale release catalog**: Rancher v2.15.3 supports RKE2 v1.34–v1.36 (default v1.36.5); the bundled
    catalog was v1.32–v1.34. Refreshed from Rancher's own release list; e2e now fails if the catalog lacks
