@@ -3,12 +3,14 @@ export GOTOOLCHAIN := local
 REGISTRY ?= localhost:5000
 TAG ?= dev
 RANCHER ?= $(shell awk '/^  - v/{print $$2; exit}' deploy/compat.yaml)
+# The community Rancher image (or its mirror) whose bundled RKE2 metadata generates the release catalog.
+RANCHER_IMAGE ?= rancher/rancher:$(RANCHER)
 PG_URL := postgres://postgres:test@127.0.0.1:15432/postgres?sslmode=disable
 
 IMAGE := $(REGISTRY)/kubestack/kubestack-api:$(TAG)
 GOLANGCI := docker run --rm -v $(CURDIR):/src -v $(shell go env GOMODCACHE):/go/pkg/mod:ro -w /src -e GOTOOLCHAIN=local -e GOPROXY=off -e GOFLAGS=-buildvcs=false golangci/golangci-lint:v1.64.8
 
-.PHONY: build test test-integration lint license-check e2e e2e-matrix helm-lint image sbom airgap-bundle dev-up dev-down run-dev run-dev-rancher ci
+.PHONY: build test test-integration lint license-check e2e e2e-matrix helm-lint image sbom airgap-bundle dev-up dev-down run-dev run-dev-rancher ci catalog catalog-check
 build:
 	go build -trimpath -o bin/kubestack-api ./cmd/kubestack-api
 	cd portal && npm ci --no-audit --no-fund && npm run build
@@ -69,3 +71,13 @@ run-dev-rancher: build
 	KUBESTACK_ENGINE=rancher KUBESTACK_RANCHER_KUBECONFIG=bin/rancher-dev.kubeconfig KUBESTACK_DEV_AUTH=true KUBESTACK_PORTAL_DIR=portal/dist ./bin/kubestack-api
 
 ci: lint test license-check build test-integration helm-lint image
+
+# RKE2 release catalog from the pinned Rancher image's bundled release metadata (no network at runtime).
+catalog:
+	mkdir -p bin
+	docker run --rm --entrypoint cat $(RANCHER_IMAGE) /var/lib/rancher-data/driver-metadata/data.json > bin/kdm-$(RANCHER).json
+	go run ./hack/gencatalog -rancher $(RANCHER) -kdm bin/kdm-$(RANCHER).json > internal/upgrade/releases.json
+
+# Fails if the committed catalog is not what `make catalog` generates.
+catalog-check: catalog
+	git diff --exit-code internal/upgrade/releases.json

@@ -95,11 +95,12 @@ make sbom              # SPDX SBOM of the image (syft in Docker) -> bin/sbom.spd
 make airgap-bundle     # image + chart + SBOM + compliance + mirror.sh -> bin/kubestack-airgap-<tag>.tar.gz
 make run-dev           # fake engine + memory store + dev auth at http://localhost:8080
 make dev-up / dev-down # disposable community Rancher; then make run-dev-rancher
+make catalog           # RKE2 release catalog from the pinned Rancher image's bundled metadata (RANCHER_IMAGE=<mirror>)
 make ci                # everything above except e2e, sbom, airgap-bundle and dev-up
 ```
 Releases: pushing a `v*.*.*` tag runs `.github/workflows/release.yml` (push, cosign keyless sign, SBOM attestation, bundle).
 Not yet implemented: `generate` (there are no CRD types yet).
-New Rancher version: add it to `deploy/compat.yaml` and its preload list to `hack/e2e-images/`.
+New Rancher version: add it to `deploy/compat.yaml` and its preload list to `hack/e2e-images/`, then `make catalog`.
 
 Run `make lint test license-check` before considering any task done.
 
