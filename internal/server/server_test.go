@@ -210,13 +210,28 @@ func TestAccess(t *testing.T) {
 		t.Fatalf("without cluster OIDC: %d", w.Code)
 	}
 	eng, st := fake.Demo(), store.NewMemory()
-	oidc := &domain.ClusterOIDC{IssuerURL: "https://idp.example", ClientID: "kubestack", GroupsClaim: "groups", AdminGroup: "admins"}
+	oidc := &domain.ClusterOIDC{IssuerURL: "https://idp.example", ClientID: "kubestack", GroupsClaim: "groups", AdminGroup: "admins", CAPEM: []byte("-----BEGIN CERTIFICATE-----")}
 	s := &Server{Engine: eng, Store: st, AdminGroup: "admins", Now: time.Now, ClusterOIDC: oidc,
 		Auth: userAuth{auth.User{Name: "alice", Groups: []string{"admins"}}}}
 	h = s.Routes("")
 	w := do(h, "GET", "/api/v1/clusters/prod-eu/access", "", "")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"issuerURL":"https://idp.example"`) || strings.Contains(w.Body.String(), "admins") {
 		t.Fatalf("access: %d %s", w.Code, w.Body)
+	}
+	// Exactly the documented fields: no credentials, and no server-side OIDC settings (admin group, CA, claims).
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	var o map[string]any
+	if err := json.Unmarshal(got["oidc"], &o); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got["servers"] == nil || got["certificateAuthorityData"] == nil || len(o) != 2 || o["issuerURL"] == nil || o["clientID"] == nil {
+		t.Fatalf("access fields: %s", w.Body)
+	}
+	if b := w.Body.String(); strings.Contains(b, "CERTIFICATE") || strings.Contains(b, "groups") {
+		t.Fatalf("access leaks server-side OIDC config: %s", b)
 	}
 	if w := do(h, "GET", "/api/v1/clusters/legacy-k3s/access", "", ""); w.Code != http.StatusConflict {
 		t.Fatalf("attached access: %d", w.Code)

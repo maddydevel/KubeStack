@@ -1,0 +1,111 @@
+{{- if .Values.controller.enabled }}
+# Reconciles KubeStackCluster resources (CRD in crds/) using the same engine RBAC as the API.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubestack-controller
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: kubestack-controller}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: kubestack-controller}
+    spec:
+      serviceAccountName: kubestack-controller
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: controller
+          image: "{{ with .Values.image.registry }}{{ . }}/{{ end }}{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/kubestack-controller"]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          ports: [{name: probes, containerPort: 8081}]
+          env:
+            - {name: KUBESTACK_NAMESPACE, value: {{ .Release.Namespace | quote }}}
+            - {name: KUBESTACK_ADMIN_GROUP, value: {{ .Values.adminGroup | quote }}}
+            - {name: KUBESTACK_OIDC_ISSUER, value: {{ .Values.oidc.issuer | quote }}}
+            - {name: KUBESTACK_OIDC_CLIENT_ID, value: {{ .Values.oidc.clientID | quote }}}
+            - {name: KUBESTACK_OIDC_GROUPS_CLAIM, value: {{ .Values.oidc.groupsClaim | quote }}}
+            {{- if .Values.oidc.caConfigMap }}
+            - {name: KUBESTACK_OIDC_CA_FILE, value: /etc/kubestack/oidc/ca.crt}
+            {{- end }}
+            {{- with .Values.oidc.cliClientID }}
+            - {name: KUBESTACK_OIDC_CLI_CLIENT_ID, value: {{ . | quote }}}
+            {{- end }}
+            {{- with .Values.databaseSecret }}
+            - name: KUBESTACK_DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ . }}, key: DATABASE_URL}}
+            {{- end }}
+            {{- if .Values.rancherKubeconfigSecret }}
+            - {name: KUBESTACK_RANCHER_KUBECONFIG, value: /etc/kubestack/rancher/kubeconfig}
+            {{- end }}
+          readinessProbe: {httpGet: {path: /readyz, port: probes}}
+          livenessProbe: {httpGet: {path: /healthz, port: probes}}
+          volumeMounts:
+            {{- if .Values.rancherKubeconfigSecret }}
+            - {name: rancher, mountPath: /etc/kubestack/rancher, readOnly: true}
+            {{- end }}
+            {{- if .Values.oidc.caConfigMap }}
+            - {name: oidc-ca, mountPath: /etc/kubestack/oidc, readOnly: true}
+            {{- end }}
+      volumes:
+        {{- if .Values.rancherKubeconfigSecret }}
+        - name: rancher
+          secret: {secretName: {{ .Values.rancherKubeconfigSecret }}}
+        {{- end }}
+        {{- if .Values.oidc.caConfigMap }}
+        - name: oidc-ca
+          configMap: {name: {{ .Values.oidc.caConfigMap }}}
+        {{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubestack-controller
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubestack-controller
+rules:
+  - apiGroups: ["kubestack.dev"]
+    resources: ["kubestackclusters"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["kubestack.dev"]
+    resources: ["kubestackclusters/status"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubestack-controller
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: kubestack-controller}
+subjects:
+  - {kind: ServiceAccount, name: kubestack-controller, namespace: {{ .Release.Namespace }}}
+---
+# Leader election.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubestack-controller-leader
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubestack-controller-leader
+  namespace: {{ .Release.Namespace }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: kubestack-controller-leader}
+subjects:
+  - {kind: ServiceAccount, name: kubestack-controller, namespace: {{ .Release.Namespace }}}
+{{- end }}

@@ -84,17 +84,12 @@ func run() error {
 		if issuer == "" || client == "" {
 			return errors.New("KUBESTACK_OIDC_ISSUER and KUBESTACK_OIDC_CLIENT_ID are required (or KUBESTACK_DEV_AUTH=true)")
 		}
-		groupsClaim := env("KUBESTACK_OIDC_GROUPS_CLAIM", "groups")
-		// Clusters trust the same IdP; a CLI needs a public client, so it may differ from the portal's.
-		clusterOIDC = &domain.ClusterOIDC{IssuerURL: issuer, ClientID: env("KUBESTACK_OIDC_CLI_CLIENT_ID", client), GroupsClaim: groupsClaim, AdminGroup: adminGroup}
-		if f := os.Getenv("KUBESTACK_OIDC_CA_FILE"); f != "" {
-			ca, err := os.ReadFile(f) // #nosec G304 -- operator-supplied path
-			if err != nil {
-				return err
-			}
-			clusterOIDC.CAPEM = ca
+		// Clusters trust the same IdP.
+		var err error
+		if clusterOIDC, err = auth.ClusterOIDCFromEnv(adminGroup); err != nil {
+			return err
 		}
-		o, err := auth.NewOIDC(ctx, issuer, client, groupsClaim)
+		o, err := auth.NewOIDC(ctx, issuer, client, clusterOIDC.GroupsClaim)
 		if err != nil {
 			return err
 		}

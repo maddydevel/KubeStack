@@ -139,5 +139,18 @@ test("connect builds a credential-free kubeconfig that logs in via the user's Id
   expect(k).toContain("server: https://203.0.113.5:6443");
   expect(k).toContain("certificate-authority-data: Q0E=");
   expect(k).toContain("--oidc-issuer-url=https://idp.example");
-  expect(k).not.toMatch(/token:|client-key|password/);
+  // The only user credential is an exec of kubelogin, so the IdP token goes straight to the user's machine.
+  expect(k).toContain("apiVersion: client.authentication.k8s.io/v1");
+  expect(k).toContain("command: kubectl");
+  expect(k).toContain("args: [oidc-login, get-token, --oidc-issuer-url=https://idp.example, --oidc-client-id=kubestack,");
+  expect(k).toContain("interactiveMode: IfAvailable");
+  expect(k).toContain("current-context: prod-eu");
+  expect(k).not.toMatch(/token:|client-key|client-certificate|password|auth-provider|username:/);
+});
+
+test("kubeconfig omits the CA when the cluster has none (system trust store)", () => {
+  const k = kubeconfig("dev", { servers: ["https://10.0.0.1:6443", "https://10.0.0.2:6443"], certificateAuthorityData: "", oidc: { issuerURL: "https://idp.example", clientID: "cli" } });
+  expect(k).not.toContain("certificate-authority-data");
+  expect(k).toContain("server: https://10.0.0.1:6443");
+  expect(k).toContain("--oidc-client-id=cli");
 });

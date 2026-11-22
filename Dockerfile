@@ -5,6 +5,7 @@
 ARG RUNTIME_IMAGE=gcr.io/distroless/static-debian12:nonroot
 FROM ${RUNTIME_IMAGE}
 COPY bin/kubestack-api /kubestack-api
+COPY bin/kubestack-controller /kubestack-controller
 COPY portal/dist /portal
 COPY compliance/ /licenses/
 ENV KUBESTACK_PORTAL_DIR=/portal

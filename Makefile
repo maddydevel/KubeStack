@@ -8,11 +8,17 @@ RANCHER_IMAGE ?= rancher/rancher:$(RANCHER)
 PG_URL := postgres://postgres:test@127.0.0.1:15432/postgres?sslmode=disable
 
 IMAGE := $(REGISTRY)/kubestack/kubestack-api:$(TAG)
+# controller-gen (Apache-2.0) is a dev tool: generates deepcopy and the CRD, never shipped.
+CONTROLLER_GEN := go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.17.3
 GOLANGCI := docker run --rm -v $(CURDIR):/src -v $(shell go env GOMODCACHE):/go/pkg/mod:ro -w /src -e GOTOOLCHAIN=local -e GOPROXY=off -e GOFLAGS=-buildvcs=false golangci/golangci-lint:v1.64.8
 
-.PHONY: build test test-integration lint license-check e2e e2e-matrix helm-lint image sbom airgap-bundle dev-up dev-down run-dev run-dev-rancher ci catalog catalog-check
+.PHONY: generate build test test-integration lint license-check e2e e2e-matrix helm-lint image sbom airgap-bundle dev-up dev-down run-dev run-dev-rancher ci catalog catalog-check
+# CRD types in api/ -> deepcopy + deploy/helm/kubestack/crds/
+generate:
+	$(CONTROLLER_GEN) object:headerFile=hack/boilerplate.go.txt paths=./api/... crd output:crd:dir=deploy/helm/kubestack/crds
+
 build:
-	CGO_ENABLED=0 go build -trimpath -o bin/kubestack-api ./cmd/kubestack-api
+	CGO_ENABLED=0 go build -trimpath -o bin/ ./cmd/...
 	cd portal && npm ci --no-audit --no-fund && npm run build
 
 test:
