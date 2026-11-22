@@ -95,3 +95,34 @@ export const api = {
     call<Cluster>("POST", `/clusters/${encodeURIComponent(id)}/upgrade`, { kubernetesVersion }, true),
   remove: (id: string) => call<unknown>("DELETE", `/clusters/${encodeURIComponent(id)}`, undefined, true),
 };
+
+/** A kubeconfig without credentials: kubectl obtains the user's own IdP token via the kubelogin plugin. */
+export function kubeconfig(name: string, a: Access): string {
+  const ca = a.certificateAuthorityData ? `\n    certificate-authority-data: ${a.certificateAuthorityData}` : "";
+  return `apiVersion: v1
+kind: Config
+clusters:
+- name: ${name}
+  cluster:
+    server: ${a.servers[0]}${ca}
+users:
+- name: ${name}-oidc
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1
+      command: kubectl
+      args: [oidc-login, get-token, --oidc-issuer-url=${a.oidc.issuerURL}, --oidc-client-id=${a.oidc.clientID}, --oidc-extra-scope=email, --oidc-extra-scope=groups]
+      interactiveMode: IfAvailable
+contexts:
+- name: ${name}
+  context: {cluster: ${name}, user: ${name}-oidc}
+current-context: ${name}
+`;
+}
+
+/** Shell snippet: the operator reads the token with their own kubectl credentials; KubeStack never sees it. */
+export function registrationScript(r: Registration, provisioned: boolean): string {
+  const read = `TOKEN=$(kubectl -n ${r.token.namespace} get secret ${r.token.name} -o jsonpath='{.data.${r.token.key}}' | base64 -d)`;
+  const cmd = r.command.split("{token}").join("${TOKEN}") + (provisioned ? " --etcd --controlplane --worker" : "");
+  return `${read}\n${cmd}`;
+}
