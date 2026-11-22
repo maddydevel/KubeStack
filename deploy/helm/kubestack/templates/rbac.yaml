@@ -33,6 +33,9 @@ metadata:
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: kubestack-engine}
 subjects:
   - {kind: ServiceAccount, name: kubestack-api, namespace: {{ .Release.Namespace }}}
+  {{- if .Values.controller.enabled }}
+  - {kind: ServiceAccount, name: kubestack-controller, namespace: {{ .Release.Namespace }}}
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -60,3 +63,6 @@ metadata:
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: kubestack-engine-read}
 subjects:
   - {kind: ServiceAccount, name: kubestack-api, namespace: {{ .Release.Namespace }}}
+  {{- if .Values.controller.enabled }}
+  - {kind: ServiceAccount, name: kubestack-controller, namespace: {{ .Release.Namespace }}}
+  {{- end }}

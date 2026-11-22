@@ -127,14 +127,39 @@ portal with an OIDC-aware proxy that forwards `Authorization: Bearer <id_token>`
 | Audit row with `attempt` but no `success`/`failure` | API crashed mid-op — check cluster state in Rancher, then record outcome |
 
 ## 7. Known gaps (backlog)
+
 - Direct access: a real kubectl login is not covered by e2e (no nodes).
 - Upgrading imported clusters needs etcd snapshot visibility for them (pre-flight can't be bypassed); refused with a reason.
   Kept for GA (2026-11-21). Possible later route: RKE2/K3s record snapshots in-cluster as `ETCDSnapshotFile` (unverified).
 - KubeStack-owned upgrades (System Upgrade Controller): dropped from GA by the product owner (2026-11-21). No cluster
   gets `upgradeOwner: kubestack` (provisioned = rancher, attached = rancher or none), so the path would be unreachable.
-- `kubestack-controller` + CRDs: deferred by the product owner until there is a GitOps user (2026-11-18).
-- SBOM covers the Go binary and base image; portal npm packages are listed in `compliance/THIRD-PARTY.md`
-  (bundled JS is not detected by syft).
+
+Resolved:
+- `kubestack-controller` + CRDs (issue #5): implemented on `feat/controller-crds` (commit `5f7926a`). Declarative
+  `KubeStackCluster` CRDs reconcile to the same engine with the same capability gate, pre-flight checks, and audit
+  trail as the API. Helm chart, RBAC, controller Deployment, and 7 unit tests included. Not yet merged to `main`.
+- SBOM covers portal npm packages (`make sbom` → `bin/sbom-npm.json`) in addition to the Go binary/base image (syft).
+- Air-gapped container build fixed (`0176752`): single-stage distroless image copying pre-built host artifacts, no
+  `npm ci`/`go mod download` inside Docker.
+
+## 9. Supporting documentation
+
+| Document | Purpose |
+|----------|---------|
+| `README.md` | Project charter, scope, quick start, verify commands |
+| `CLAUDE.md` | Engineering rules (non-negotiable R1–R17), repo layout, definition of done |
+| `SECURITY.md` | Security policy, vulnerability reporting, security-by-design controls |
+| `CONTRIBUTING.md` | Developer onboarding, environment setup, how to work in the repo |
+| `docs/USER_GUIDE.md` | End-user manual: sign in, dashboard, create/upgrade/delete, snapshots, nodes, kubectl access |
+| `docs/operations/ADMIN.md` | System administrator guide: install, configure, runbook, logs, upgrades, uninstall |
+| `docs/operations/DR.md` | Disaster recovery & business continuity: RTO/RPO, backup, restore, failover |
+| `docs/SLA.md` | Service level agreement: operational targets, support model, exclusions |
+| `docs/EOL.md` | Decommissioning / end-of-life plan: procedure, data retention, rollback |
+| `docs/acceptance.md` | Acceptance test on real infrastructure (4 VMs, IdP users, kubectl OIDC login) |
+| `docs/adr/0001–0005.md` | Architecture decision records: headless engine, portal login, node registration, direct access, declarative controller |
+| `api/openapi.yaml` | HTTP API contract (ICD / API specification) |
+| `compliance/THIRD-PARTY.md` | Third-party software inventory and licenses |
+| `compliance/APPROVALS.md` | License approvals for LGPL/EPL/source-available dependencies |
 
 ## 8. Verification record — 2026-11-17
 | Stage | Command | Result |

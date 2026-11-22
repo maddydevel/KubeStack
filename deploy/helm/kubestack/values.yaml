@@ -26,5 +26,9 @@ databaseSecret: ""
 # or set to a Secret containing key "kubeconfig" for a remote local cluster.
 rancherKubeconfigSecret: ""
 
+# Reconciles KubeStackCluster resources (declarative clusters). Same image as the API.
+controller:
+  enabled: true
+
 service:
   port: 80

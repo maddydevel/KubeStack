@@ -82,7 +82,8 @@ test/
 ## Commands
 
 ```bash
-make build             # api binary + portal bundle
+make generate          # CRD types in api/ -> deepcopy + chart CRDs (controller-gen)
+make build             # api + controller binaries + portal bundle
 make test              # Go unit tests (-race) + portal component tests
 make lint              # gofmt, go vet, golangci-lint (Docker), tsc --noEmit, eslint
 make license-check     # hack/license-check.sh; fails on forbidden licenses
@@ -99,7 +100,7 @@ make catalog           # RKE2 release catalog from the pinned Rancher image's bu
 make ci                # everything above except e2e, sbom, airgap-bundle and dev-up
 ```
 Releases: pushing a `v*.*.*` tag runs `.github/workflows/release.yml` (push, cosign keyless sign, SBOM attestation, bundle).
-Not yet implemented: `generate` (there are no CRD types yet).
+`make generate`: deepcopy + CRD YAML (`deploy/helm/kubestack/crds/`) from `api/v1alpha1` via controller-gen. Not yet generated: OpenAPI and the portal TS client (`portal/src/api.ts` is hand-written).
 New Rancher version: add it to `deploy/compat.yaml` and its preload list to `hack/e2e-images/`, then `make catalog`.
 
 Run `make lint test license-check` before considering any task done.

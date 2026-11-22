@@ -217,38 +217,13 @@ func decode(r *http.Request, v any) error {
 	return d.Decode(v)
 }
 
-// lifecycle runs op under the service identity, bracketed by audit records. If the
-// "attempt" record cannot be written the operation is refused.
+// lifecycle runs op under the service identity, bracketed by audit records (audit.Run).
 func (s *Server) lifecycle(ctx context.Context, u auth.User, action, clusterID string, before, after any, op func() error) error {
-	rec := audit.Record{Actor: u.Name, Action: action, ClusterID: clusterID, Before: mustJSON(before), After: mustJSON(after)}
-	rec.Result = audit.ResultAttempt
-	if err := s.Store.AddAudit(ctx, rec); err != nil {
-		slog.Error("audit attempt", "err", err)
-		return errAuditUnavailable
-	}
-	err := op()
-	rec.Result = audit.ResultSuccess
-	if err != nil {
-		rec.Result, rec.Error = audit.ResultFailure, err.Error()
-	}
-	if aerr := s.Store.AddAudit(context.WithoutCancel(ctx), rec); aerr != nil {
-		slog.Error("audit result", "err", aerr, "action", action, "cluster", clusterID, "result", rec.Result)
-	}
-	return err
-}
-
-var errAuditUnavailable = errors.New("audit trail unavailable")
-
-func mustJSON(v any) json.RawMessage {
-	if v == nil {
-		return nil
-	}
-	b, _ := json.Marshal(v)
-	return b
+	return audit.Run(ctx, s.Store, u.Name, action, clusterID, before, after, op)
 }
 
 func (s *Server) lifecycleErr(err error) reply {
-	if errors.Is(err, errAuditUnavailable) {
+	if errors.Is(err, audit.ErrUnavailable) {
 		return fail(http.StatusServiceUnavailable, "audit trail unavailable; operation refused")
 	}
 	return engineErr(err)
