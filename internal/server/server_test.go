@@ -16,6 +16,7 @@ import (
 	"kubestack.dev/kubestack/internal/domain"
 	"kubestack.dev/kubestack/internal/engine/fake"
 	"kubestack.dev/kubestack/internal/store"
+	"kubestack.dev/kubestack/internal/upgrade"
 )
 
 type userAuth struct{ u auth.User }
@@ -298,5 +299,30 @@ func TestReadEndpoints(t *testing.T) {
 	w := do(h, "GET", "/api/v1/clusters/prod-eu", "", "")
 	if err := json.Unmarshal(w.Body.Bytes(), &c); err != nil || c.UpgradeOwner == "" || len(c.Operations) != len(domain.Operations) {
 		t.Fatalf("cluster view missing upgradeOwner or operations: %s", w.Body)
+	}
+}
+
+// Rule 15: the audit trail and idempotency store hold no secrets, so they need no column encryption.
+// This pins that: server-side OIDC material must never reach a persisted record.
+func TestCreateAuditHoldsNoServerSecrets(t *testing.T) {
+	eng, st := fake.Demo(), store.NewMemory()
+	const ca, group = "-----BEGIN CERTIFICATE-----SECRETCA", "platform-admins-secret-group"
+	h := (&Server{Engine: eng, Store: st, AdminGroup: "admins", Now: time.Now,
+		Auth:        userAuth{auth.User{Name: "alice", Groups: []string{"admins"}}},
+		ClusterOIDC: &domain.ClusterOIDC{IssuerURL: "https://idp", ClientID: "k", CAPEM: []byte(ca), AdminGroup: group}}).Routes("")
+	body := `{"name":"new-one","kubernetesVersion":"` + upgrade.Versions()[0] + `"}`
+	w := do(h, "POST", "/api/v1/clusters", body, "")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body)
+	}
+	recs, _ := st.ListAudit(context.Background(), 10)
+	for _, r := range recs {
+		all, _ := json.Marshal(r)
+		if strings.Contains(string(all), "SECRETCA") || strings.Contains(string(all), group) {
+			t.Fatalf("audit record leaks OIDC material: %s", all)
+		}
+	}
+	if strings.Contains(w.Body.String(), "SECRETCA") {
+		t.Fatalf("response leaks CA: %s", w.Body)
 	}
 }
