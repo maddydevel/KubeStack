@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { api, registrationScript, type Cluster, type Operation } from "../api";
 import { StatusIndicator } from "./status-indicator";
 
-type ClusterCardProps = { c: Cluster; versions: string[] };
+type ClusterCardProps = { c: Cluster; versions: string[]; className?: string };
 
 const OP_LABELS: Record<Operation, string> = {
   upgrade: "Upgrade",
@@ -15,12 +15,12 @@ const OP_LABELS: Record<Operation, string> = {
   access: "Access",
 };
 
-export default function ClusterCard({ c, versions }: ClusterCardProps) {
+export default function ClusterCard({ c, versions, className }: ClusterCardProps) {
   const [open, setOpen] = useState<Operation | null>(null);
   const tier = c.tier === "provisioned" ? "provisioned" : c.tier === "hosted" ? "hosted" : "attached";
 
   return (
-    <article className="surface surface-hover group p-4">
+    <article className={`surface surface-hover group p-4 ${className ?? ""}`}>
       <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2">

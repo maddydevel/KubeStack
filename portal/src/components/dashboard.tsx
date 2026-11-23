@@ -39,10 +39,37 @@ export default function Dashboard({ me, clusters, versions, audit, onCreateClust
 
         {/* Stat cards — glanceable, real data */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-          <StatCard label="Total clusters" value={clusters.length.toString()} subtitle="Across all tiers" />
-          <StatCard label="Ready" value={readyCount.toString()} subtitle="Control plane healthy" accent="success" />
-          <StatCard label="Not ready" value={notReadyCount.toString()} subtitle="Needs attention" accent="warning" />
-          <StatCard label="Snapshots (24h)" value={snapshotCount.toString()} subtitle="Clusters with snapshots" accent="accent" />
+          <StatCard
+            label="Total clusters"
+            value={clusters.length.toString()}
+            subtitle="Across all tiers"
+            className="animate-slide-in"
+            style={{ animationDelay: "0.1s" }}
+          />
+          <StatCard
+            label="Ready"
+            value={readyCount.toString()}
+            subtitle="Control plane healthy"
+            accent="success"
+            className="animate-slide-in"
+            style={{ animationDelay: "0.2s" }}
+          />
+          <StatCard
+            label="Not ready"
+            value={notReadyCount.toString()}
+            subtitle="Needs attention"
+            accent="warning"
+            className="animate-slide-in"
+            style={{ animationDelay: "0.3s" }}
+          />
+          <StatCard
+            label="Snapshots (24h)"
+            value={snapshotCount.toString()}
+            subtitle="Clusters with snapshots"
+            accent="accent"
+            className="animate-slide-in"
+            style={{ animationDelay: "0.4s" }}
+          />
         </div>
 
         {/* Cluster grid */}
@@ -71,7 +98,7 @@ export default function Dashboard({ me, clusters, versions, audit, onCreateClust
               </div>
             ) : (
               clusters.map((c) => (
-                <ClusterCard key={c.id} c={c} versions={versions} />
+                <ClusterCard key={c.id} c={c} versions={versions} className="card-lift" />
               ))
             )}
           </div>
@@ -117,7 +144,21 @@ export default function Dashboard({ me, clusters, versions, audit, onCreateClust
   );
 }
 
-function StatCard({ label, value, subtitle, accent }: { label: string; value: string; subtitle: string; accent?: "success" | "warning" | "accent" }) {
+function StatCard({
+  label,
+  value,
+  subtitle,
+  accent,
+  className,
+  style,
+}: {
+  label: string;
+  value: string;
+  subtitle: string;
+  accent?: "success" | "warning" | "accent";
+  className?: string;
+  style?: React.CSSProperties;
+}) {
   const accentClass =
     accent === "success"
       ? "bg-success-subtle text-success border border-success/20"
@@ -128,7 +169,10 @@ function StatCard({ label, value, subtitle, accent }: { label: string; value: st
           : "bg-white/5 border border-white/5";
 
   return (
-    <div className={`surface p-3 rounded-lg border ${accentClass}`}>
+    <div
+      className={`surface p-3 rounded-lg border stat-card ${accentClass} ${className ?? ""}`}
+      style={style}
+    >
       <p className="text-[10px] font-signature text-text-tertiary mb-1">{label}</p>
       <div className="flex items-baseline gap-1">
         <span className="text-lg font-signature">{value}</span>

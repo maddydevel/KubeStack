@@ -5,6 +5,7 @@ import { api, ApiError } from "./api";
 import Layout from "./components/layout";
 import Dashboard from "./components/dashboard";
 import RegisterDialog from "./components/register-dialog";
+import { ThemeProvider } from "./components/theme-context";
 
 function ErrorBox({ error }: { error: unknown }) {
   if (!error) return null;
@@ -66,8 +67,9 @@ export default function App() {
   if (!me.data) return <main className="surface p-6">{<ErrorBox error={me.error} />}</main>;
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Layout me={me.data}>
+    <ThemeProvider>
+      <div className="flex h-screen overflow-hidden">
+        <Layout me={me.data}>
         <Dashboard
           me={me.data}
           clusters={clusters.data ?? []}
@@ -90,6 +92,7 @@ export default function App() {
           />
         )}
       </Layout>
-    </div>
+      </div>
+    </ThemeProvider>
   );
 }
