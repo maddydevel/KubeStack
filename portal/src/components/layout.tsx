@@ -23,18 +23,20 @@ export default function Layout({ me, children }: LayoutProps) {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Mobile overlay */}
-      {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 backdrop-blur-sm"
-          onClick={() => setMobileMenuOpen(false)}
-        />
-      )}
+      {/* Mobile hamburger button — only visible on mobile, outside sidebar */}
+      <button
+        className="md:hidden mr-3 rounded-md p-1.5 text-text-quaternary hover:text-white hover:bg-white/5 transition-colors"
+        onClick={() => setMobileMenuOpen((o) => !o)}
+        aria-label="Toggle navigation"
+      >
+        <span className="sr-only">Menu</span>
+        ☰
+      </button>
 
       {/* Sidebar */}
       <aside
         className={`panel flex flex-col w-72 shrink-0 border-r border-white/5 sidebar z-20 ${
-          mobileMenuOpen ? "translate-x-0" : "translate-x-full"
+          window.innerWidth >= 768 || mobileMenuOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
         <div className="flex items-center justify-between px-5 py-5 border-b border-white/5">
@@ -47,12 +49,10 @@ export default function Layout({ me, children }: LayoutProps) {
             </span>
           </div>
           <button
-            onClick={() => setMobileMenuOpen((o) => !o)}
+            onClick={toggleTheme}
             className="rounded-md p-1.5 text-text-quaternary hover:text-white hover:bg-white/5 transition-colors"
-            aria-label="Toggle navigation"
           >
-            <span className="sr-only">Menu</span>
-            ≡
+            {theme === "dark" ? "☀" : "☾"}
           </button>
         </div>
         <nav className="flex-1 px-3 py-3 space-y-0.5">
@@ -78,13 +78,6 @@ export default function Layout({ me, children }: LayoutProps) {
               </div>
             </div>
           </div>
-          <button
-            onClick={toggleTheme}
-            className="mt-3 w-full btn-ghost px-3 py-2 text-sm hover:bg-white/5 border-r-0 border-l-0 border-b-0 border-t border-white/5 flex items-center justify-between"
-          >
-            <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
-            <span>{theme === "dark" ? "☀" : "☾"}</span>
-          </button>
           <button
             onClick={async () => {
               await api.logout();
@@ -129,7 +122,7 @@ export default function Layout({ me, children }: LayoutProps) {
               {theme === "dark" ? "☀" : "☾"}
             </button>
             <button
-              className="rounded-md p-1.5 text-text-quaternary hover:text-white hover:bg-white/5 transition-colors"
+              className="hidden md:block rounded-md p-1.5 text-text-quaternary hover:text-white hover:bg-white/5 transition-colors"
               aria-label="User menu"
             >
               <span className="sr-only">User menu</span>
