@@ -329,7 +329,6 @@ tbody tr:hover {
 }
 
 /* --- Sidebar --- */
-
 .sidebar {
   transition: transform 0.3s ease, width 0.3s ease;
 }
@@ -343,6 +342,22 @@ tbody tr:hover {
     transform: translateX(0);
     width: 72px;
   }
+}
+
+/* Mobile sidebar overlay positioning */
+@media (max-width: 767px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 50;
+    height: 100vh;
+  }
+}
+
+.translate-x-full {
+  transform: translateX(100%);
 }
 
 /* --- Scrollbar --- */

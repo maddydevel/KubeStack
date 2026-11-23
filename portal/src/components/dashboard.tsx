@@ -19,11 +19,11 @@ export default function Dashboard({ me, clusters, versions, audit, onCreateClust
 
   return (
     <Layout me={me}>
-      <div className="space-y-6">
+      <div className="space-y-8">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between animate-fade-in" style={{ animationDelay: "0.1s" }}>
           <div>
-            <h1 className="text-xl font-signature">Clusters</h1>
+            <h1 className="text-xl font-signature text-text-primary">Clusters</h1>
             <p className="text-xs text-text-tertiary mt-0.5">
               Manage RKE2 and attached clusters through the headless Rancher engine.
             </p>
@@ -75,14 +75,16 @@ export default function Dashboard({ me, clusters, versions, audit, onCreateClust
         {/* Cluster grid */}
         <section className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-signature text-text-secondary uppercase tracking-wider">Cluster inventory</h2>
+            <h2 className="text-sm font-signature text-text-secondary uppercase tracking-wider">
+              Cluster inventory
+            </h2>
             <span className="text-xs text-text-quaternary font-mono">
               {clusters.length} cluster{clusters.length !== 1 ? "s" : ""}
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {clusters.length === 0 ? (
-              <div className="col-span-full">
+              <div className="col-span-full animate-fade-in">
                 <EmptyState
                   title="No clusters yet"
                   subtitle="Create your first RKE2 cluster or import an existing one to get started."
@@ -106,7 +108,9 @@ export default function Dashboard({ me, clusters, versions, audit, onCreateClust
 
         {/* Recent audit activity */}
         <section className="flex flex-col gap-3">
-          <h2 className="text-sm font-signature text-text-secondary uppercase tracking-wider">Recent activity</h2>
+          <h2 className="text-sm font-signature text-text-secondary uppercase tracking-wider">
+            Recent activity
+          </h2>
           <div className="surface">
             <table className="w-full text-left text-sm border-collapse">
               <thead>
@@ -120,8 +124,10 @@ export default function Dashboard({ me, clusters, versions, audit, onCreateClust
               </thead>
               <tbody>
                 {audit.slice(0, 10).map((r) => (
-                  <tr key={r.id} className="border-t border-white/5">
-                    <td className="px-3 py-2 text-text-quaternary font-mono text-[10px]">{new Date(r.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
+                  <tr key={r.id} className="border-t border-white/5 animate-fade-in" style={{ animationDelay: "0.2s" }}>
+                    <td className="px-3 py-2 text-text-quaternary font-mono text-[10px]">
+                      {new Date(r.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </td>
                     <td className="px-3 py-2 text-text-secondary">{r.actor}</td>
                     <td className="px-3 py-2 text-text-secondary">{r.action}</td>
                     <td className="px-3 py-2 text-text-secondary font-mono text-[10px]">{r.clusterId}</td>
@@ -132,7 +138,9 @@ export default function Dashboard({ me, clusters, versions, audit, onCreateClust
                 ))}
                 {audit.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-text-quaternary">No activity yet.</td>
+                    <td colSpan={5} className="px-3 py-6 text-center text-text-quaternary">
+                      No activity yet.
+                    </td>
                   </tr>
                 )}
               </tbody>
@@ -175,7 +183,7 @@ function StatCard({
     >
       <p className="text-[10px] font-signature text-text-tertiary mb-1">{label}</p>
       <div className="flex items-baseline gap-1">
-        <span className="text-lg font-signature">{value}</span>
+        <span className="text-lg font-signature text-text-primary">{value}</span>
       </div>
       <p className="text-[10px] text-text-tertiary mt-0.5">{subtitle}</p>
     </div>

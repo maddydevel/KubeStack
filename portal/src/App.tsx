@@ -70,28 +70,28 @@ export default function App() {
     <ThemeProvider>
       <div className="flex h-screen overflow-hidden">
         <Layout me={me.data}>
-        <Dashboard
-          me={me.data}
-          clusters={clusters.data ?? []}
-          versions={versions.data ?? []}
-          audit={audit.data ?? []}
-          onCreateCluster={() => setRegisterOpen(true)}
-        />
-        {registerOpen && (
-          <RegisterDialog
-            open={registerOpen}
-            onClose={() => setRegisterOpen(false)}
+          <Dashboard
+            me={me.data}
+            clusters={clusters.data ?? []}
             versions={versions.data ?? []}
-            name={regName}
-            setName={setRegName}
-            version={regVersion}
-            setVersion={setRegVersion}
-            creating={regDone.isPending}
-            onCreate={() => regDone.mutate()}
-            error={regDone.error}
+            audit={audit.data ?? []}
+            onCreateCluster={() => setRegisterOpen(true)}
           />
-        )}
-      </Layout>
+          {registerOpen && (
+            <RegisterDialog
+              open={registerOpen}
+              onClose={() => setRegisterOpen(false)}
+              versions={versions.data ?? []}
+              name={regName}
+              setName={setRegName}
+              version={regVersion}
+              setVersion={setRegVersion}
+              creating={regDone.isPending}
+              onCreate={() => regDone.mutate()}
+              error={regDone.error}
+            />
+          )}
+        </Layout>
       </div>
     </ThemeProvider>
   );
