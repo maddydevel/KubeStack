@@ -1,6 +1,6 @@
 // Copyright 2026 The KubeStack Authors. All rights reserved.
 import { useState, useEffect } from "react";
-import { api, registrationScript, type Cluster, type Operation } from "../api";
+import { api, registrationScript, type Cluster, type Access, type Operation } from "../api";
 import { StatusIndicator } from "./status-indicator";
 
 type ClusterCardProps = { c: Cluster; versions: string[]; className?: string };
@@ -225,11 +225,26 @@ function UpgradeInline({ c, versions, onClose }: { c: Cluster; versions: string[
 
 function AccessInline({ c }: { c: Cluster }) {
   const [showing, setShowing] = useState(false);
+  const [access, setAccess] = useState<Access | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    if (!showing) return;
+    setPending(true);
+    api.access(c.id)
+      .then(setAccess)
+      .catch((e: Error) => setErr(e.message ?? "Access not available"))
+      .finally(() => setPending(false));
+  }, [showing, c.id]);
 
   return (
     <div className="mt-3 surface p-3 rounded-lg border border-white/5">
       <button
-        onClick={() => setShowing(!showing)}
+        onClick={() => {
+          setShowing(!showing);
+          if (showing) setErr(null);
+        }}
         className="w-full btn-ghost px-3 py-1.5 text-xs flex items-center justify-between"
       >
         <span className="flex items-center gap-1.5">
@@ -239,19 +254,45 @@ function AccessInline({ c }: { c: Cluster }) {
       </button>
       {showing && (
         <div className="mt-2 surface p-2 rounded border border-white/5">
-          <p className="text-[10px] text-text-tertiary mb-1">
-            kubectl signs you in with your IdP via kubelogin. No credentials stored.
-          </p>
-          <button
-            onClick={() => {
-              navigator.clipboard.writeText(
-                `kubectl oidc-login get-token --issuer ${c.operations.access?.reason ?? ""}`
-              );
-            }}
-            className="w-full btn-brand px-3 py-1.5 text-[10px]"
-          >
-            Copy access command
-          </button>
+          {pending && (
+            <div className="flex items-center justify-center py-3">
+              <span className="text-[10px] text-text-tertiary">Loading access info…</span>
+            </div>
+          )}
+          {!pending && err && (
+            <div className="flex items-center gap-2 p-3 bg-danger/10 border border-danger/20 rounded-md">
+              <span className="text-[10px] text-danger">{err}</span>
+            </div>
+          )}
+          {!pending && access && (
+            <div className="space-y-2">
+              <p className="text-[10px] text-text-tertiary">
+                kubectl signs you in with your IdP via kubelogin. No credentials stored.
+              </p>
+              <div className="flex flex-wrap gap-2 mb-2">
+                <span className="rounded bg-white/5 px-2 py-1 text-xs border border-white/5 text-text-tertiary font-mono">
+                  {access.servers.join(", ")}
+                </span>
+                {access.oidc && (
+                  <span className="rounded bg-white/5 px-2 py-1 text-xs border border-white/5 text-text-tertiary font-mono">
+                    {access.oidc.issuerURL}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  const issuer = access.oidc?.issuerURL ?? "";
+                  const clientID = access.oidc?.clientID ?? "";
+                  navigator.clipboard.writeText(
+                    `kubectl oidc-login get-token --issuer ${issuer} --oidc-client-id ${clientID}`
+                  );
+                }}
+                className="w-full btn-brand px-3 py-1.5 text-[10px]"
+              >
+                Copy kubectl login command
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
