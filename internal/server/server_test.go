@@ -237,3 +237,66 @@ func TestAccess(t *testing.T) {
 		t.Fatalf("attached access: %d", w.Code)
 	}
 }
+
+// downAudit is a store whose audit trail is unavailable.
+type downAudit struct{ *store.Memory }
+
+func (downAudit) AddAudit(context.Context, audit.Record) error { return context.DeadlineExceeded }
+
+func TestDeleteAuditedAndIdempotencyScopedPerUser(t *testing.T) {
+	eng, st := fake.Demo(), store.NewMemory()
+	srv := func(name string) http.Handler {
+		return (&Server{Engine: eng, Store: st, AdminGroup: "admins", Now: time.Now,
+			Auth: userAuth{auth.User{Name: name, Groups: []string{"admins"}}}}).Routes("")
+	}
+	if w := do(srv("alice"), "DELETE", "/api/v1/clusters/prod-eu", "", ""); w.Code != 400 {
+		t.Fatalf("delete without key: %d", w.Code)
+	}
+	if w := do(srv("alice"), "DELETE", "/api/v1/clusters/prod-eu", "", "d1"); w.Code != http.StatusAccepted {
+		t.Fatalf("delete: %d %s", w.Code, w.Body)
+	}
+	recs, _ := st.ListAudit(context.Background(), 10)
+	if len(recs) != 2 || recs[0].Action != "delete" || recs[0].Result != audit.ResultSuccess || recs[0].Before == nil {
+		t.Fatalf("audit: %+v", recs)
+	}
+	// Bob reusing alice's key must not receive alice's stored response.
+	if w := do(srv("bob"), "DELETE", "/api/v1/clusters/prod-eu", "", "d1"); w.Header().Get("Idempotent-Replayed") == "true" {
+		t.Fatal("idempotency key replayed across users")
+	}
+	if w := do(srv("alice"), "DELETE", "/api/v1/clusters/nope", "", "d2"); w.Code != http.StatusNotFound {
+		t.Fatalf("delete unknown: %d", w.Code)
+	}
+}
+
+func TestLifecycleRefusedWhenAuditUnavailable(t *testing.T) {
+	eng := fake.Demo()
+	h := (&Server{Engine: eng, Store: downAudit{store.NewMemory()}, AdminGroup: "admins", Now: time.Now,
+		Auth: userAuth{auth.User{Name: "alice", Groups: []string{"admins"}}}}).Routes("")
+	if w := do(h, "DELETE", "/api/v1/clusters/prod-eu", "", "d1"); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("delete with audit down: %d %s", w.Code, w.Body)
+	}
+	if _, err := eng.GetCluster(context.Background(), "prod-eu"); err != nil {
+		t.Fatalf("cluster changed although audit was down: %v", err)
+	}
+}
+
+func TestReadEndpoints(t *testing.T) {
+	h, _, _ := setup()
+	for path, want := range map[string]int{
+		"/api/v1/versions":                   200,
+		"/api/v1/clusters/prod-eu":           200,
+		"/api/v1/clusters/nope":              404,
+		"/api/v1/clusters/prod-eu/snapshots": 200,
+		"/api/v1/audit?limit=abc":            200,
+		"/api/v1/audit?limit=5000":           200,
+	} {
+		if w := do(h, "GET", path, "", ""); w.Code != want {
+			t.Errorf("GET %s: %d want %d (%s)", path, w.Code, want, w.Body)
+		}
+	}
+	var c clusterView
+	w := do(h, "GET", "/api/v1/clusters/prod-eu", "", "")
+	if err := json.Unmarshal(w.Body.Bytes(), &c); err != nil || c.UpgradeOwner == "" || len(c.Operations) != len(domain.Operations) {
+		t.Fatalf("cluster view missing upgradeOwner or operations: %s", w.Body)
+	}
+}

@@ -10,6 +10,8 @@ PG_URL := postgres://postgres:test@127.0.0.1:15432/postgres?sslmode=disable
 IMAGE := $(REGISTRY)/kubestack/kubestack-api:$(TAG)
 # controller-gen (Apache-2.0) is a dev tool: generates deepcopy and the CRD, never shipped.
 CONTROLLER_GEN := go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.17.3
+# npm packages may ship .go files; keep them out of Go tooling.
+GOPKGS = $(shell go list ./... | grep -v /node_modules/)
 GOLANGCI := docker run --rm -v $(CURDIR):/src -v $(shell go env GOMODCACHE):/go/pkg/mod:ro -w /src -e GOTOOLCHAIN=local -e GOPROXY=off -e GOFLAGS=-buildvcs=false golangci/golangci-lint:v1.64.8
 
 .PHONY: generate build test test-integration lint license-check e2e e2e-matrix helm-lint image sbom airgap-bundle dev-up dev-down run-dev run-dev-rancher ci catalog catalog-check
@@ -22,7 +24,7 @@ build:
 	cd portal && npm ci --no-audit --no-fund && npm run build
 
 test:
-	go test -race ./...
+	go test -race $(GOPKGS)
 	cd portal && npm test
 
 # Store contract against a real PostgreSQL in Docker.
@@ -34,7 +36,7 @@ test-integration:
 
 # golangci-lint (GPL-3.0) runs in Docker as a dev tool only; it is never linked or shipped.
 lint:
-	gofmt -l . | (! grep .) && go vet ./... && go vet -tags e2e ./internal/engine/rancher/
+	gofmt -l $$(find . -name '*.go' -not -path './portal/node_modules/*') | (! grep .) && go vet $(GOPKGS) && go vet -tags e2e ./internal/engine/rancher/
 	go mod download && $(GOLANGCI) golangci-lint run --timeout 5m --build-tags e2e ./...
 	cd portal && npm run lint
 

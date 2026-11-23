@@ -40,3 +40,44 @@ func TestAllowedByTier(t *testing.T) {
 		}
 	}
 }
+
+func TestAllowedUpgradeByOwner(t *testing.T) {
+	// Rule 5: only an owner KubeStack can act through may be upgraded; unknown or empty owners fail closed.
+	for owner, want := range map[UpgradeOwner]bool{OwnerRancher: true, OwnerKubeStack: false, OwnerCloud: false, OwnerNone: false, "": false} {
+		if ok, why := (Cluster{Tier: TierProvisioned, UpgradeOwner: owner}).Allowed(OpUpgrade); ok != want || (!ok && why == "") {
+			t.Errorf("owner %q: allowed=%v (%q), want %v", owner, ok, why, want)
+		}
+	}
+	prov := Cluster{Tier: TierProvisioned, UpgradeOwner: OwnerRancher}
+	if ok, _ := prov.Allowed(OpAccess); !ok {
+		t.Error("provisioned access refused")
+	}
+	if ok, _ := prov.Allowed("bogus"); ok {
+		t.Error("unknown operation allowed")
+	}
+	if ok, _ := (Cluster{Tier: "", UpgradeOwner: OwnerRancher}).Allowed(OpDelete); ok {
+		t.Error("cluster with no tier allowed delete")
+	}
+}
+
+func TestValidate(t *testing.T) {
+	versions := []string{"v1.31.4+rke2r1"}
+	for _, tc := range []struct {
+		r  CreateRequest
+		ok bool
+	}{
+		{CreateRequest{Name: "prod-1", KubernetesVersion: versions[0]}, true},
+		{CreateRequest{Name: "Prod", KubernetesVersion: versions[0]}, false},
+		{CreateRequest{Name: "-x", KubernetesVersion: versions[0]}, false},
+		{CreateRequest{Name: "", KubernetesVersion: versions[0]}, false},
+		{CreateRequest{Name: string(make([]byte, 64)), KubernetesVersion: versions[0]}, false},
+		{CreateRequest{Name: "prod", KubernetesVersion: "v1.99.0"}, false},
+	} {
+		if err := tc.r.Validate(versions); (err == nil) != tc.ok {
+			t.Errorf("%+v: err=%v want ok=%v", tc.r, err, tc.ok)
+		}
+	}
+	if (ImportRequest{Name: "edge"}).Validate() != nil || (ImportRequest{Name: "a_b"}).Validate() == nil {
+		t.Error("ImportRequest name validation")
+	}
+}
