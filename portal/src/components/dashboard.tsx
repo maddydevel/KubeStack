@@ -9,9 +9,10 @@ type DashboardProps = {
   clusters: Cluster[];
   versions: string[];
   audit: Array<{ id: number; time: string; actor: string; action: string; clusterId: string; result: string; error?: string }>;
+  onCreateCluster: () => void;
 };
 
-export default function Dashboard({ me, clusters, versions, audit }: DashboardProps) {
+export default function Dashboard({ me, clusters, versions, audit, onCreateCluster }: DashboardProps) {
   const readyCount = clusters.filter((c) => c.ready).length;
   const notReadyCount = clusters.length - readyCount;
   const snapshotCount = clusters.reduce((sum, c) => sum + (c.operations.snapshot?.allowed ? 1 : 0), 0);
@@ -29,6 +30,7 @@ export default function Dashboard({ me, clusters, versions, audit }: DashboardPr
           </div>
           <button
             disabled={!me.admin}
+            onClick={onCreateCluster}
             className="btn-brand px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Create cluster

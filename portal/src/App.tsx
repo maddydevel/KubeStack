@@ -73,6 +73,7 @@ export default function App() {
           clusters={clusters.data ?? []}
           versions={versions.data ?? []}
           audit={audit.data ?? []}
+          onCreateCluster={() => setRegisterOpen(true)}
         />
         {registerOpen && (
           <RegisterDialog
