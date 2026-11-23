@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { api, type Me } from "../api";
 import { useTheme } from "./theme-context";
 
-type LayoutProps = { me: Me; children: React.ReactNode };
+type LayoutProps = { me: Me; active: string; setActive: (v: string) => void; children: React.ReactNode };
 
 const NAV = [
   { key: "clusters", label: "Clusters" },
@@ -11,7 +11,7 @@ const NAV = [
   { key: "settings", label: "Settings" },
 ];
 
-export default function Layout({ me, children }: LayoutProps) {
+export default function Layout({ me, active, setActive, children }: LayoutProps) {
   const { theme, toggleTheme } = useTheme()!;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -56,15 +56,19 @@ export default function Layout({ me, children }: LayoutProps) {
           </button>
         </div>
         <nav className="flex-1 px-3 py-3 space-y-0.5">
-          {NAV.map((n) => (
-            <button
-              key={n.key}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 text-text-tertiary hover:bg-white/5 hover:text-text-secondary"
-            >
-              <span className="w-5 text-text-quaternary">{n.label.charAt(0)}</span>
-              <span className="font-signature">{n.label}</span>
-            </button>
-          ))}
+          {NAV.map((n) => {
+            const isActive = active === n.key;
+            return (
+              <button
+                key={n.key}
+                onClick={() => setActive(n.key)}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 ${isActive ? "bg-accent/20 text-accent" : "text-text-tertiary hover:bg-white/5 hover:text-text-secondary"}`}
+              >
+                <span className="w-5 text-text-quaternary">{n.label.charAt(0)}</span>
+                <span className={`font-signature ${isActive ? "text-text-primary" : "text-text-tertiary"}`}>{n.label}</span>
+              </button>
+            );
+          })}
         </nav>
         <div className="px-5 py-4 border-t border-white/5">
           <div className="flex items-center gap-3">
@@ -78,6 +82,13 @@ export default function Layout({ me, children }: LayoutProps) {
               </div>
             </div>
           </div>
+          <button
+            onClick={toggleTheme}
+            className="mt-3 w-full btn-ghost px-3 py-2 text-sm hover:bg-white/5 border-r-0 border-l-0 border-b-0 border-t border-white/5 flex items-center justify-between"
+          >
+            <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+            <span>{theme === "dark" ? "☀" : "☾"}</span>
+          </button>
           <button
             onClick={async () => {
               await api.logout();
@@ -94,7 +105,9 @@ export default function Layout({ me, children }: LayoutProps) {
       <div className="flex-1 flex flex-col overflow-hidden bg-bg">
         <header className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-bg/80 backdrop-blur z-10">
           <div className="flex items-center gap-3">
-            <h1 className="text-lg font-signature text-text-primary">Clusters</h1>
+            <h1 className="text-lg font-signature text-text-primary">
+              {active === "clusters" ? "Clusters" : active === "audit" ? "Audit trail" : "Settings"}
+            </h1>
             <span className="h-3.5 w-px bg-white/10 mx-1"></span>
             <span className="text-xs text-text-tertiary font-mono">
               Control plane

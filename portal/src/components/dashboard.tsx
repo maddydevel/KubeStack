@@ -8,14 +8,91 @@ type DashboardProps = {
   clusters: Cluster[];
   versions: string[];
   audit: Array<{ id: number; time: string; actor: string; action: string; clusterId: string; result: string; error?: string }>;
+  active: string;
   onCreateCluster: () => void;
 };
 
-export default function Dashboard({ me, clusters, versions, audit, onCreateCluster }: DashboardProps) {
+export default function Dashboard({ me, clusters, versions, audit, active, onCreateCluster }: DashboardProps) {
   const readyCount = clusters.filter((c) => c.ready).length;
   const notReadyCount = clusters.length - readyCount;
   const snapshotCount = clusters.reduce((sum, c) => sum + (c.operations.snapshot?.allowed ? 1 : 0), 0);
 
+  if (active === "audit") {
+    return (
+      <div className="space-y-8">
+        <h1 className="text-xl font-signature text-text-primary">Audit trail</h1>
+        <p className="text-xs text-text-tertiary mt-0.5">
+          Lifecycle operations and their outcomes across all clusters.
+        </p>
+        <div className="surface">
+          <table className="w-full text-left text-sm border-collapse">
+            <thead>
+              <tr className="bg-white/5">
+                <th className="px-3 py-2 text-left text-[10px] font-signature text-text-tertiary">Time</th>
+                <th className="px-3 py-2 text-left text-[10px] font-signature text-text-tertiary">Actor</th>
+                <th className="px-3 py-2 text-left text-[10px] font-signature text-text-tertiary">Action</th>
+                <th className="px-3 py-2 text-left text-[10px] font-signature text-text-tertiary">Cluster</th>
+                <th className="px-3 py-2 text-left text-[10px] font-signature text-text-tertiary">Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {audit.slice(0, 50).map((r) => (
+                <tr key={r.id} className="border-t border-white/5 animate-fade-in" style={{ animationDelay: "0.2s" }}>
+                  <td className="px-3 py-2 text-text-quaternary font-mono text-[10px]">
+                    {new Date(r.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </td>
+                  <td className="px-3 py-2 text-text-secondary">{r.actor}</td>
+                  <td className="px-3 py-2 text-text-secondary">{r.action}</td>
+                  <td className="px-3 py-2 text-text-secondary font-mono text-[10px]">{r.clusterId}</td>
+                  <td className={`px-3 py-2 text-[10px] font-signature ${r.result === "failure" ? "text-danger" : "text-text-quaternary"}`}>
+                    {r.result}{r.error && `: ${r.error}`}
+                  </td>
+                </tr>
+              ))}
+              {audit.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-3 py-6 text-center text-text-quaternary">
+                    No activity yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  if (active === "settings") {
+    return (
+      <div className="space-y-8">
+        <h1 className="text-xl font-signature text-text-primary">Settings</h1>
+        <p className="text-xs text-text-tertiary mt-0.5">
+          Platform configuration and preferences.
+        </p>
+        <div className="surface p-6">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-signature text-text-primary">Theme</h3>
+                <p className="text-xs text-text-tertiary">Switch between dark and light mode.</p>
+              </div>
+              <button className="text-xs font-signature text-accent hover:text-accent-hover">Toggle theme</button>
+            </div>
+            <div className="flex items-center justify-between pt-4 border-t border-white/10">
+              <div>
+                <h3 className="text-sm font-signature text-text-primary">Admin group</h3>
+                <p className="text-xs text-text-tertiary">{me.admin ? "You are an administrator" : "Standard user access"}</p>
+              </div>
+              <span className="text-xs font-mono text-text-tertiary">{me.admin ? "admin" : "user"}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Default: Clusters view
   return (
     <div className="space-y-8">
       {/* Header */}

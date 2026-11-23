@@ -32,6 +32,7 @@ export default function App() {
   const versions = useQuery({ queryKey: ["versions"], queryFn: api.versions, staleTime: Infinity, enabled: !!me.data });
   const audit = useQuery({ queryKey: ["audit"], queryFn: api.audit, enabled: !!me.data });
 
+  const [active, setActive] = useState<string>("clusters");
   const [registerOpen, setRegisterOpen] = useState(false);
   const [regName, setRegName] = useState("");
   const [regVersion, setRegVersion] = useState("");
@@ -69,12 +70,13 @@ export default function App() {
   return (
     <ThemeProvider>
       <div className="flex h-screen overflow-hidden">
-        <Layout me={me.data}>
+        <Layout me={me.data} active={active} setActive={setActive}>
           <Dashboard
             me={me.data}
             clusters={clusters.data ?? []}
             versions={versions.data ?? []}
             audit={audit.data ?? []}
+            active={active}
             onCreateCluster={() => setRegisterOpen(true)}
           />
           {registerOpen && (
