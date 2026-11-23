@@ -128,4 +128,25 @@ func TestLoginFlow(t *testing.T) {
 	if _, err := o.Authenticate(tampered); err == nil {
 		t.Fatal("tampered token accepted")
 	}
+
+	// 5. A valid token issued to another client (audience) is refused as a bearer token.
+	other, err := NewOIDC(context.Background(), idp.URL, "other-app", "groups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bearer := httptest.NewRequest("GET", "/", nil)
+	bearer.Header.Set("Authorization", "Bearer "+session.Value)
+	if _, err := other.Authenticate(bearer); err == nil {
+		t.Fatal("token for a different audience accepted")
+	}
+	if _, err := o.Authenticate(bearer); err != nil {
+		t.Fatalf("bearer token: %v", err)
+	}
+
+	// 6. Logout expires the session cookie.
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("POST", "/auth/logout", nil))
+	if c := w.Result().Cookies(); w.Code != http.StatusNoContent || len(c) != 1 || c[0].Name != SessionCookie || c[0].MaxAge >= 0 {
+		t.Fatalf("logout: %d %v", w.Code, c)
+	}
 }

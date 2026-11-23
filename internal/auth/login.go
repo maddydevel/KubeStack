@@ -48,7 +48,11 @@ func random() string {
 }
 
 func (l *Login) cookie(name, value, path string, maxAge time.Duration) *http.Cookie {
-	return &http.Cookie{Name: name, Value: value, Path: path, MaxAge: int(maxAge.Seconds()), HttpOnly: true,
+	ma := int(maxAge.Seconds())
+	if maxAge < 0 {
+		ma = -1 // net/http emits "Max-Age=0" (delete) only for negative MaxAge; 0 means "no attribute"
+	}
+	return &http.Cookie{Name: name, Value: value, Path: path, MaxAge: ma, HttpOnly: true,
 		Secure: strings.HasPrefix(l.conf.RedirectURL, "https://"), SameSite: http.SameSiteLaxMode}
 }
 
