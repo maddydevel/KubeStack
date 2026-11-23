@@ -62,9 +62,10 @@ export default function Layout({ me, active, setActive, children }: LayoutProps)
               <button
                 key={n.key}
                 onClick={() => setActive(n.key)}
+                aria-current={isActive ? "page" : undefined}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 ${isActive ? "bg-accent/20 text-accent" : "text-text-tertiary hover:bg-white/5 hover:text-text-secondary"}`}
               >
-                <span className="w-5 text-text-quaternary">{n.label.charAt(0)}</span>
+                <span aria-hidden="true" className="w-5 text-text-quaternary">{n.label.charAt(0)}</span>
                 <span className={`font-signature ${isActive ? "text-text-primary" : "text-text-tertiary"}`}>{n.label}</span>
               </button>
             );

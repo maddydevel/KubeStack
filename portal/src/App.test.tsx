@@ -201,3 +201,18 @@ test("kubeconfig omits the CA when the cluster has none (system trust store)", (
   expect(k).toContain("server: https://10.0.0.1:6443");
   expect(k).toContain("--oidc-client-id=cli");
 });
+
+test("sidebar navigation switches between clusters, audit trail and settings", async () => {
+  renderApp();
+  await cardFor("prod-eu");
+  const nav = (label: string) => userEvent.click(screen.getAllByRole("button", { name: label })[0]);
+  await nav("Audit trail");
+  expect(await screen.findAllByRole("heading", { name: "Audit trail" })).not.toHaveLength(0);
+  expect(screen.getAllByRole("button", { name: "Audit trail" })[0].getAttribute("aria-current")).toBe("page");
+  expect(screen.queryByText("prod-eu", { selector: "h3" })).toBeNull();
+  expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/audit"))).toBe(true);
+  await nav("Settings");
+  expect(await screen.findAllByRole("heading", { name: "Settings" })).not.toHaveLength(0);
+  await nav("Clusters");
+  expect(await cardFor("prod-eu")).toBeTruthy();
+});
