@@ -63,7 +63,11 @@ async function call<T>(method: string, path: string, body?: unknown, idempotent 
   // Required by the server for cookie-authenticated mutations (CSRF protection).
   const headers: Record<string, string> = { "X-KubeStack-Request": "1" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (idempotent) headers["Idempotency-Key"] = crypto.randomUUID();
+  // getRandomValues, not randomUUID: the latter is missing on plain-HTTP (non-localhost) origins.
+  if (idempotent)
+    headers["Idempotency-Key"] = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) =>
+      b.toString(16).padStart(2, "0"),
+    ).join("");
   const res = await fetch(`/api/v1${path}`, {
     method,
     headers,

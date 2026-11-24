@@ -110,8 +110,8 @@ func (s *Server) wrap(mutating, idempotent bool, h handler) http.Handler {
 			return
 		}
 		key := r.Header.Get("Idempotency-Key")
-		if key == "" {
-			write(w, http.StatusBadRequest, []byte(`{"error":"Idempotency-Key header is required for destructive operations"}`))
+		if key == "" || len(key) > 255 { // stored as a primary key; huge values fail the index, not the request
+			write(w, http.StatusBadRequest, []byte(`{"error":"an Idempotency-Key header of 1-255 characters is required for destructive operations"}`))
 			return
 		}
 		scoped := u.Name + "|" + r.Method + "|" + r.URL.Path + "|" + key

@@ -47,6 +47,9 @@ func TestUpgradeFlow(t *testing.T) {
 	if w := do(h, "POST", "/api/v1/clusters/prod-eu/upgrade", body, ""); w.Code != 400 {
 		t.Fatalf("missing idempotency key: got %d", w.Code)
 	}
+	if w := do(h, "POST", "/api/v1/clusters/prod-eu/upgrade", body, strings.Repeat("k", 256)); w.Code != 400 {
+		t.Fatalf("oversized idempotency key: got %d", w.Code)
+	}
 	w := do(h, "POST", "/api/v1/clusters/prod-eu/upgrade", body, "k1")
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("upgrade: %d %s", w.Code, w.Body)

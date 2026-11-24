@@ -90,6 +90,8 @@ test("operations a tier does not support are disabled with the server's reason",
 });
 
 test("delete requires typing the cluster name and sends an idempotency key", async () => {
+  // Plain-HTTP origins (the documented service URL) have no crypto.randomUUID.
+  vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) });
   const user = userEvent.setup();
   renderApp();
   await user.click(within(await cardFor("prod-eu")).getByRole("button", { name: "Delete" }));
@@ -101,7 +103,7 @@ test("delete requires typing the cluster name and sends an idempotency key", asy
   await user.click(confirm);
   const call = fetchMock.mock.calls.find(([, i]) => i?.method === "DELETE")!;
   expect(call[0]).toBe("/api/v1/clusters/prod-eu");
-  expect((call[1].headers as Record<string, string>)["Idempotency-Key"]).toMatch(/[0-9a-f-]{36}/);
+  expect((call[1].headers as Record<string, string>)["Idempotency-Key"]).toMatch(/^[0-9a-f]{32}$/);
 });
 
 test("upgrade needs explicit confirmation and shows pre-flight failures", async () => {
@@ -158,7 +160,7 @@ test("restore needs the cluster name typed and sends an idempotency key", async 
   await user.click(confirm);
   const call = fetchMock.mock.calls.find(([u]) => String(u).endsWith("/restore"))!;
   expect(JSON.parse(call[1].body)).toEqual({ snapshot: "prod-eu-etcd-1" });
-  expect((call[1].headers as Record<string, string>)["Idempotency-Key"]).toMatch(/[0-9a-f-]{36}/);
+  expect((call[1].headers as Record<string, string>)["Idempotency-Key"]).toMatch(/^[0-9a-f]{32}$/);
 });
 
 test("node removal needs the node name typed", async () => {
