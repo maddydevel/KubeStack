@@ -100,7 +100,7 @@ export default function Dashboard({ me, clusters, versions, audit, active, onCre
         <div>
           <h1 className="text-xl font-signature text-text-primary">Clusters</h1>
           <p className="text-xs text-text-tertiary mt-0.5">
-            Manage RKE2 and attached clusters through the headless Rancher engine.
+            Manage RKE2 and attached clusters through the lifecycle engine.
           </p>
         </div>
         <button
@@ -166,6 +166,7 @@ export default function Dashboard({ me, clusters, versions, audit, active, onCre
                 action={
                   <button
                     disabled={!me.admin}
+                    onClick={onCreateCluster}
                     className="btn-brand px-4 py-2 text-sm disabled:opacity-50"
                   >
                     Create cluster

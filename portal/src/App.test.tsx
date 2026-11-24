@@ -218,3 +218,23 @@ test("sidebar navigation switches between clusters, audit trail and settings", a
   await nav("Clusters");
   expect(await cardFor("prod-eu")).toBeTruthy();
 });
+
+test("add-cluster dialog creates at the chosen version or imports by name only", async () => {
+  const user = userEvent.setup();
+  renderApp();
+  const posted = () => fetchMock.mock.calls.filter(([, i]) => i?.method === "POST").map(([u, i]) => [u, JSON.parse(String(i.body))]);
+  await screen.findByText("prod-eu", { selector: "h3" });
+
+  await user.click(screen.getAllByRole("button", { name: "Create cluster" })[0]);
+  await user.type(screen.getByLabelText("Cluster name"), "edge-1");
+  await user.selectOptions(screen.getByLabelText("Kubernetes version"), "v1.34.12+rke2r1");
+  await user.click(screen.getByRole("button", { name: "Create" }));
+  await vi.waitFor(() => expect(posted()).toEqual([["/api/v1/clusters", { name: "edge-1", kubernetesVersion: "v1.34.12+rke2r1" }]]));
+
+  await user.click(screen.getAllByRole("button", { name: "Create cluster" })[0]);
+  await user.click(screen.getByLabelText("Import existing"));
+  expect(screen.queryByLabelText("Kubernetes version")).toBeNull(); // an attached cluster keeps its own version
+  await user.type(screen.getByLabelText("Cluster name"), "legacy");
+  await user.click(screen.getByRole("button", { name: "Import" }));
+  await vi.waitFor(() => expect(posted()[1]).toEqual(["/api/v1/clusters/import", { name: "legacy" }]));
+});

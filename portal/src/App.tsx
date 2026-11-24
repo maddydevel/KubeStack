@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "./api";
 import Layout from "./components/layout";
 import Dashboard from "./components/dashboard";
-import RegisterDialog from "./components/register-dialog";
+import RegisterDialog, { type AddMode } from "./components/register-dialog";
 import { ThemeProvider } from "./components/theme-context";
 
 function ErrorBox({ error }: { error: unknown }) {
@@ -36,9 +36,11 @@ export default function App() {
   const [registerOpen, setRegisterOpen] = useState(false);
   const [regName, setRegName] = useState("");
   const [regVersion, setRegVersion] = useState("");
+  const [regMode, setRegMode] = useState<AddMode>("create");
   const regDone = useMutation({
     mutationFn: () => {
-      const v = versions.data?.at(-1);
+      if (regMode === "import") return api.importCluster(regName);
+      const v = regVersion || versions.data?.at(-1); // the select shows the newest until one is picked
       if (!v) throw new Error("No versions available");
       return api.create(regName, v);
     },
@@ -82,6 +84,8 @@ export default function App() {
           {registerOpen && (
             <RegisterDialog
               open={registerOpen}
+              mode={regMode}
+              setMode={setRegMode}
               onClose={() => setRegisterOpen(false)}
               versions={versions.data ?? []}
               name={regName}
