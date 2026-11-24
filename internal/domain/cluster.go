@@ -171,24 +171,36 @@ type Node struct {
 	Roles []string `json:"roles"` // etcd, controlplane, worker
 }
 
-// RemovalBlocked refuses removing a node that would leave the cluster without etcd or a control plane.
+// RemovalBlocked refuses removing a node that would leave the cluster without a ready control
+// plane or without etcd quorum. Only Ready nodes count as surviving members: removing a healthy
+// etcd member while another is down can drop the remainder below quorum.
 func RemovalBlocked(nodes []Node, name string) string {
 	var target *Node
-	count := map[string]int{}
+	members, ready := map[string]int{}, map[string]int{} // per role, excluding the target
 	for i, n := range nodes {
 		if n.Name == name {
 			target = &nodes[i]
+			continue
 		}
 		for _, r := range n.Roles {
-			count[r]++
+			members[r]++
+			if n.Ready {
+				ready[r]++
+			}
 		}
 	}
 	if target == nil {
 		return "node not found in this cluster"
 	}
 	for _, r := range target.Roles {
-		if (r == "etcd" || r == "controlplane") && count[r] == 1 {
-			return "refusing to remove the last " + r + " node"
+		if r != "etcd" && r != "controlplane" {
+			continue
+		}
+		if ready[r] == 0 {
+			return "refusing to remove the last ready " + r + " node"
+		}
+		if r == "etcd" && ready[r] <= members[r]/2 {
+			return fmt.Sprintf("removing would leave etcd without quorum (%d of %d remaining members ready)", ready[r], members[r])
 		}
 	}
 	return ""

@@ -6,18 +6,42 @@ import "testing"
 
 func TestRemovalBlocked(t *testing.T) {
 	nodes := []Node{
-		{Name: "cp1", Roles: []string{"etcd", "controlplane"}},
-		{Name: "w1", Roles: []string{"worker"}},
-		{Name: "w2", Roles: []string{"worker"}},
+		{Name: "cp1", Ready: true, Roles: []string{"etcd", "controlplane"}},
+		{Name: "w1", Ready: true, Roles: []string{"worker"}},
+		{Name: "w2", Ready: true, Roles: []string{"worker"}},
 	}
 	for name, blocked := range map[string]bool{"cp1": true, "w1": false, "missing": true} {
 		if got := RemovalBlocked(nodes, name) != ""; got != blocked {
 			t.Errorf("%s: blocked=%v want %v", name, got, blocked)
 		}
 	}
-	nodes = append(nodes, Node{Name: "cp2", Roles: []string{"etcd", "controlplane"}})
+	nodes = append(nodes, Node{Name: "cp2", Ready: true, Roles: []string{"etcd", "controlplane"}})
 	if why := RemovalBlocked(nodes, "cp1"); why != "" {
 		t.Errorf("cp1 with a second control-plane node: %s", why)
+	}
+
+	etcd := func(ready ...bool) []Node {
+		var ns []Node
+		for i, r := range ready {
+			ns = append(ns, Node{Name: string(rune('a' + i)), Ready: r, Roles: []string{"etcd", "controlplane"}})
+		}
+		return ns
+	}
+	for _, c := range []struct {
+		nodes   []Node
+		remove  string
+		blocked bool
+	}{
+		{etcd(true, false), "a", true},                    // the only other member is down
+		{etcd(true, true, false), "a", true},              // 1 of 2 remaining ready: no quorum
+		{etcd(true, true, false), "c", false},             // removing the dead member is the repair
+		{etcd(true, true, true), "a", false},              // 2 of 2 remaining ready
+		{etcd(true, true, true, true, false), "a", false}, // 3 of 4 remaining ready
+		{etcd(true, true, true, false, false), "a", true}, // 2 of 4 remaining ready
+	} {
+		if got := RemovalBlocked(c.nodes, c.remove) != ""; got != c.blocked {
+			t.Errorf("%+v remove %s: blocked=%v want %v (%s)", c.nodes, c.remove, got, c.blocked, RemovalBlocked(c.nodes, c.remove))
+		}
 	}
 }
 
