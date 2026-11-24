@@ -21,6 +21,7 @@ func TestValidateSkew(t *testing.T) {
 		{"v1.35.9+rke2r1", "v1.35.1+rke2r1", false},  // patch downgrade
 		{"v1.35.9+rke2r1", "v1.35.9+rke2r1", false},  // no-op
 		{"garbage", "v1.35.9+rke2r1", false},
+		{"v1.-1.0+rke2r1", "v1.0.0+rke2r1", false}, // negative component looks like a valid +1 minor
 	}
 	for _, c := range cases {
 		if err := ValidateSkew(c.from, c.to); (err == nil) != c.ok {
@@ -45,6 +46,16 @@ func TestCheck(t *testing.T) {
 	}
 	if f := Check(c, "v1.35.9+rke2r1", Preflight{}, now); len(f) != 2 {
 		t.Fatalf("expected no-snapshot+no-nodes failures, got %v", f)
+	}
+	future := good
+	future.LatestSnapshot = now.Add(time.Hour)
+	if f := Check(c, "v1.35.9+rke2r1", future, now); len(f) != 1 {
+		t.Fatalf("future-dated snapshot must not count as fresh, got %v", f)
+	}
+	skewed := good
+	skewed.LatestSnapshot = now.Add(time.Minute)
+	if f := Check(c, "v1.35.9+rke2r1", skewed, now); len(f) != 0 {
+		t.Fatalf("small clock skew must be tolerated, got %v", f)
 	}
 	hosted := c
 	hosted.Tier, hosted.UpgradeOwner = domain.TierHosted, domain.OwnerCloud

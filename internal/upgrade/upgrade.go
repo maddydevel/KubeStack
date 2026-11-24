@@ -31,6 +31,10 @@ func Versions() []string {
 
 const MaxSnapshotAge = 24 * time.Hour
 
+// MaxClockSkew tolerates small clock drift between the engine and us; a snapshot dated further
+// in the future has an untrustworthy timestamp and would otherwise always count as fresh.
+const MaxClockSkew = 5 * time.Minute
+
 type version struct{ major, minor, patch int }
 
 // parse accepts "v1.32.3+rke2r1"; the build suffix is ignored for ordering.
@@ -43,7 +47,7 @@ func parse(s string) (version, error) {
 	var n [3]int
 	for i, x := range p {
 		v, err := strconv.Atoi(x)
-		if err != nil {
+		if err != nil || v < 0 {
 			return version{}, fmt.Errorf("invalid version %q", s)
 		}
 		n[i] = v
@@ -114,7 +118,9 @@ func Check(c domain.Cluster, target string, p Preflight, now time.Time) []string
 	}
 	if p.LatestSnapshot.IsZero() {
 		f = append(f, "no successful etcd snapshot found")
-	} else if age := now.Sub(p.LatestSnapshot); age > MaxSnapshotAge {
+	} else if age := now.Sub(p.LatestSnapshot); age < -MaxClockSkew {
+		f = append(f, fmt.Sprintf("latest etcd snapshot is dated %s in the future; check clock skew", (-age).Round(time.Minute)))
+	} else if age > MaxSnapshotAge {
 		f = append(f, fmt.Sprintf("latest etcd snapshot is %s old (max %s)", age.Round(time.Minute), MaxSnapshotAge))
 	}
 	if p.TotalNodes == 0 || p.ReadyNodes < p.TotalNodes {
