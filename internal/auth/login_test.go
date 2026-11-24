@@ -97,6 +97,16 @@ func TestLoginFlow(t *testing.T) {
 		t.Fatalf("forged state: %d", w.Code)
 	}
 
+	// 2b. Right state but a different nonce (an ID token minted for another login) is refused.
+	p := strings.Split(flow.Value, ".")
+	replay := httptest.NewRequest("GET", cb.RequestURI(), nil)
+	replay.AddCookie(&http.Cookie{Name: flow.Name, Value: p[0] + ".other-nonce." + p[2]})
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, replay)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("nonce mismatch: %d", w.Code)
+	}
+
 	// 3. The real callback sets an HttpOnly session cookie.
 	req := httptest.NewRequest("GET", cb.RequestURI(), nil)
 	req.AddCookie(flow)
