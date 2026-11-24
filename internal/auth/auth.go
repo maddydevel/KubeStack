@@ -71,7 +71,9 @@ func (o *OIDC) verify(ctx context.Context, tok string) (User, error) {
 		return User{}, err
 	}
 	u := User{Name: idt.Subject}
-	if e, ok := claims["email"].(string); ok && e != "" {
+	// An IdP-flagged unverified email may be self-asserted; it must not name the audit actor.
+	// Absent email_verified is accepted: some IdPs (e.g. Entra ID) never send it.
+	if e, ok := claims["email"].(string); ok && e != "" && claims["email_verified"] != false {
 		u.Name = e
 	}
 	if gs, ok := claims[o.groupsClaim].([]any); ok {

@@ -19,10 +19,14 @@ import (
 )
 
 // fakeIdP is a minimal OIDC provider: discovery, JWKS and a token endpoint that checks PKCE.
-func fakeIdP(t *testing.T) *httptest.Server {
+// mint signs arbitrary claims with the IdP's key.
+func fakeIdP(t *testing.T) (srv *httptest.Server, mint func(map[string]any) string) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	sig, _ := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: jose.JSONWebKey{Key: key, KeyID: "k"}}, nil)
-	var srv *httptest.Server
+	mint = func(c map[string]any) string {
+		raw, _ := jwt.Signed(sig).Claims(c).Serialize()
+		return raw
+	}
 	codes := map[string]string{} // code -> nonce
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
@@ -55,11 +59,11 @@ func fakeIdP(t *testing.T) *httptest.Server {
 	})
 	srv = httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return srv
+	return srv, mint
 }
 
 func TestLoginFlow(t *testing.T) {
-	idp := fakeIdP(t)
+	idp, _ := fakeIdP(t)
 	o, err := NewOIDC(context.Background(), idp.URL, "portal", "groups")
 	if err != nil {
 		t.Fatal(err)
@@ -148,5 +152,28 @@ func TestLoginFlow(t *testing.T) {
 	mux.ServeHTTP(w, httptest.NewRequest("POST", "/auth/logout", nil))
 	if c := w.Result().Cookies(); w.Code != http.StatusNoContent || len(c) != 1 || c[0].Name != SessionCookie || c[0].MaxAge >= 0 {
 		t.Fatalf("logout: %d %v", w.Code, c)
+	}
+}
+
+func TestUnverifiedEmailIsNotIdentity(t *testing.T) {
+	idp, mint := fakeIdP(t)
+	o, err := NewOIDC(context.Background(), idp.URL, "portal", "groups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		verified any
+		want     string
+	}{{false, "u1"}, {true, "boss@example.com"}, {nil, "boss@example.com"}} {
+		claims := map[string]any{"iss": idp.URL, "aud": "portal", "sub": "u1", "email": "boss@example.com",
+			"exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix()}
+		if c.verified != nil {
+			claims["email_verified"] = c.verified
+		}
+		r := httptest.NewRequest("GET", "/", nil)
+		r.Header.Set("Authorization", "Bearer "+mint(claims))
+		if u, err := o.Authenticate(r); err != nil || u.Name != c.want {
+			t.Errorf("email_verified=%v: got %q %v, want %q", c.verified, u.Name, err, c.want)
+		}
 	}
 }
